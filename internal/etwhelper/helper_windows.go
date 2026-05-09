@@ -63,7 +63,9 @@ func Run(cfg Config) int {
 		return 3
 	}
 	defer session.Stop()
-	_ = session.GetRundownEvents(nil)
+	if os.Getenv("USB_SUSPEND_WATCH_ETW_RUNDOWN") == "1" {
+		_ = session.GetRundownEvents(nil)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -112,28 +114,37 @@ func Run(cfg Config) int {
 }
 
 func providers() []etw.Provider {
-	const usbKeywords = 0xffffffff
+	usbPowerKeywords := usbProviderKeywords()
 	return []etw.Provider{
-		provider("Microsoft-Windows-USB-USBHUB3", usbKeywords),
-		provider("Microsoft-Windows-USB-UCX", usbKeywords),
-		provider("Microsoft-Windows-USB-USBXHCI", usbKeywords),
+		provider("Microsoft-Windows-USB-USBHUB3", usbPowerKeywords),
+		provider("Microsoft-Windows-USB-UCX", usbPowerKeywords),
+		provider("Microsoft-Windows-USB-USBXHCI", usbPowerKeywords),
 	}
 }
 
+func usbProviderKeywords() uint64 {
+	const powerKeyword = 0x8
+	const rundownKeyword = 0x8000
+	if os.Getenv("USB_SUSPEND_WATCH_ETW_RUNDOWN") == "1" {
+		return powerKeyword | rundownKeyword
+	}
+	return powerKeyword
+}
+
 func provider(name string, keywords uint64) etw.Provider {
-	if name == "Microsoft-Windows-USB-USBXHCI" {
-		return providerFromGUID(name, "{30e1d284-5d88-459c-83fd-6345b39b19ec}", keywords, 0)
-	}
-	provider, err := etw.ParseProvider(fmt.Sprintf("%s:0xff::0x%x", name, keywords))
-	if err == nil {
-		return provider
-	}
 	knownGUIDs := map[string]string{
 		"Microsoft-Windows-USB-USBHUB3": "{ac52ad17-cc01-4f85-8df5-4dce4333c99b}",
 		"Microsoft-Windows-USB-UCX":     "{36da592d-e43a-4e28-af6f-4bc57c5a11e8}",
 		"Microsoft-Windows-USB-USBXHCI": "{30e1d284-5d88-459c-83fd-6345b39b19ec}",
 	}
-	return providerFromGUID(name, knownGUIDs[name], keywords, etw.EVENT_ENABLE_PROPERTY_PROCESS_START_KEY)
+	if guid := knownGUIDs[name]; guid != "" {
+		return providerFromGUID(name, guid, keywords, 0)
+	}
+	provider, err := etw.ParseProvider(fmt.Sprintf("%s:0xff::0x%x", name, keywords))
+	if err == nil {
+		provider.EnableProperties = 0
+	}
+	return provider
 }
 
 func providerFromGUID(name, guid string, keywords uint64, enableProperties uint32) etw.Provider {

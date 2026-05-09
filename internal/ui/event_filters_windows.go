@@ -10,6 +10,7 @@ import (
 type eventFilter struct {
 	TypeIndex       int
 	ConfidenceIndex int
+	LevelIndex      int
 	Query           string
 }
 
@@ -28,6 +29,9 @@ func eventMatchesFilter(event model.Event, filter eventFilter) bool {
 		return false
 	}
 	if !eventMatchesConfidence(event, filter.ConfidenceIndex) {
+		return false
+	}
+	if !eventMatchesDisplayLevel(event, filter.LevelIndex) {
 		return false
 	}
 	query := strings.ToLower(strings.TrimSpace(filter.Query))
@@ -62,6 +66,31 @@ func eventMatchesConfidence(event model.Event, index int) bool {
 		return event.Confidence == model.ConfidenceHigh
 	default:
 		return true
+	}
+}
+
+func eventMatchesDisplayLevel(event model.Event, index int) bool {
+	switch index {
+	case 1:
+		return eventIsImportant(event)
+	case 2:
+		return true
+	default:
+		return event.Type != model.EventInfo
+	}
+}
+
+func eventIsImportant(event model.Event) bool {
+	switch event.Type {
+	case model.EventSuspectSuspend,
+		model.EventPowerD0Exit,
+		model.EventIdleNotification,
+		model.EventResume,
+		model.EventPowerD0Entry,
+		model.EventError:
+		return true
+	default:
+		return false
 	}
 }
 

@@ -2,7 +2,7 @@
 
 USB Suspend Watch is an installer-free Windows desktop utility for watching connected USB devices and recording suspected USB Selective Suspend transitions.
 
-The v0.5.0 release uses one production-ready monitoring layer and one lab-only experimental layer:
+The v0.6.0 release uses one production-ready monitoring layer and one lab-only experimental layer:
 
 - Simple mode: runs without elevation, watches `WM_DEVICECHANGE`, polls SetupAPI, and reads `SPDRP_DEVICE_POWER_DATA`.
 - Experimental ETW mode: source code is included, but the release UI does not start it unless `USB_SUSPEND_WATCH_EXPERIMENTAL_ETW=1` is set.
@@ -17,6 +17,7 @@ No driver, service, installer, USBPcap dependency, or telemetry is used.
 - Lets you enable or disable monitoring per connected USB device with checkboxes.
 - Records PnP arrival and removal events.
 - Filters the visible event timeline by event type, confidence, and text search.
+- Filters the visible event timeline by display level; the default hides noisy `info` events.
 - Normalizes events into:
   - `power_d0_exit`
   - `power_d0_entry`
@@ -47,7 +48,7 @@ This is an inference from Windows device power data, not a kernel trace.
 
 ### Experimental ETW Mode
 
-The ETW helper is not considered production-ready in v0.5.0. It is disabled in the release UI by default because provider-enable behavior differs by Windows build, permissions, and USB stack provider.
+The ETW helper is not considered production-ready in v0.6.0. It is disabled in the release UI by default because provider-enable behavior differs by Windows build, permissions, and USB stack provider.
 
 For lab testing only, set this environment variable before starting the app:
 
@@ -64,7 +65,13 @@ The helper subscribes to:
 - `Microsoft-Windows-USB-UCX`
 - `Microsoft-Windows-USB-USBXHCI`
 
-It attempts to focus on USB power-related events, including USBHUB3 D0 entry/exit and idle-notification events.
+It attempts to focus on USB power-related events by enabling the `Power` provider keyword, including USBHUB3 D0 entry/exit and idle-notification events. The GUI hides and does not retain `info` events by default; choose `All` in the timeline level filter before starting ETW when you need raw ETW chatter for lab debugging.
+
+For lab-only USB rundown capture, set this additional environment variable before starting ETW:
+
+```powershell
+$env:USB_SUSPEND_WATCH_ETW_RUNDOWN = "1"
+```
 
 For production-grade ETW validation today, use Microsoft `logman` traces and compare them with this app's simple-mode timeline.
 
@@ -110,7 +117,7 @@ go test ./...
 go vet ./...
 go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-.\build.ps1 -Version v0.5.0
+.\build.ps1 -Version v0.6.0
 ```
 
 `go test -race` requires CGO and a C compiler on Windows. The release package is built with `CGO_ENABLED=0`.

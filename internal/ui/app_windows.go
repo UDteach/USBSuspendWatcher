@@ -45,12 +45,14 @@ type app struct {
 	timelineLabel    *walk.Label
 	typeLabel        *walk.Label
 	confidenceLabel  *walk.Label
+	levelLabel       *walk.Label
 	statusLabel      *walk.Label
 	summaryLabel     *walk.Label
 	privilegeLabel   *walk.Label
 	logPathLabel     *walk.Label
 	eventTypeFilter  *walk.ComboBox
 	confidenceFilter *walk.ComboBox
+	levelFilter      *walk.ComboBox
 	eventSearch      *walk.LineEdit
 	notifyIcon       *walk.NotifyIcon
 	showAction       *walk.Action
@@ -234,6 +236,14 @@ func (a *app) createWindow() error {
 													d.ComboBox{
 														AssignTo:              &a.confidenceFilter,
 														Model:                 text.confidenceOptions,
+														CurrentIndex:          0,
+														StretchFactor:         1,
+														OnCurrentIndexChanged: a.applyEventFilters,
+													},
+													d.Label{AssignTo: &a.levelLabel, Text: text.levelLabel},
+													d.ComboBox{
+														AssignTo:              &a.levelFilter,
+														Model:                 text.levelOptions,
 														CurrentIndex:          0,
 														StretchFactor:         1,
 														OnCurrentIndexChanged: a.applyEventFilters,
@@ -527,6 +537,9 @@ func (a *app) currentEventFilter() eventFilter {
 	if a.confidenceFilter != nil {
 		filter.ConfidenceIndex = a.confidenceFilter.CurrentIndex()
 	}
+	if a.levelFilter != nil {
+		filter.LevelIndex = a.levelFilter.CurrentIndex()
+	}
 	if a.eventSearch != nil {
 		filter.Query = a.eventSearch.Text()
 	}
@@ -564,12 +577,14 @@ func (a *app) applyLanguage() {
 	setLabelText(a.timelineLabel, text.timelineTitle)
 	setLabelText(a.typeLabel, text.typeLabel)
 	setLabelText(a.confidenceLabel, text.confidenceLabel)
+	setLabelText(a.levelLabel, text.levelLabel)
 	if a.statusGroup != nil {
 		_ = a.statusGroup.SetTitle(text.monitoringStatusTitle)
 	}
 	setComboModel(a.languageCombo, text.languageOptions, a.language.index())
 	setComboModel(a.eventTypeFilter, text.typeOptions, selectedComboIndex(a.eventTypeFilter))
 	setComboModel(a.confidenceFilter, text.confidenceOptions, selectedComboIndex(a.confidenceFilter))
+	setComboModel(a.levelFilter, text.levelOptions, selectedComboIndex(a.levelFilter))
 	if a.eventSearch != nil {
 		_ = a.eventSearch.SetCueBanner(text.searchCue)
 	}
@@ -771,12 +786,22 @@ func (a *app) tailETWLog(ctx context.Context, path string, offset int64) {
 			}
 			a.mw.Synchronize(func() {
 				for _, event := range events {
+					if !a.acceptTailedETWEvent(event) {
+						continue
+					}
 					a.addEvent(event, false)
 				}
 				a.updateStatus(statusETWReceived)
 			})
 		}
 	}
+}
+
+func (a *app) acceptTailedETWEvent(event model.Event) bool {
+	if a.levelFilter == nil {
+		return eventMatchesDisplayLevel(event, 0)
+	}
+	return eventMatchesDisplayLevel(event, a.levelFilter.CurrentIndex())
 }
 
 func (a *app) openLogFolder() {

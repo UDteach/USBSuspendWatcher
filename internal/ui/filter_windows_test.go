@@ -65,6 +65,34 @@ func TestFilterEventsHighOnlyAndError(t *testing.T) {
 	}
 }
 
+func TestFilterEventsDisplayLevelSuppressesInfoByDefault(t *testing.T) {
+	events := []model.Event{
+		{Type: model.EventInfo, Confidence: model.ConfidenceHigh, Message: "noisy ETW state machine event"},
+		{Type: model.EventPnPArrival, Confidence: model.ConfidenceMedium, Message: "device arrival"},
+		{Type: model.EventPowerD0Exit, Confidence: model.ConfidenceHigh, Message: "D0 exit"},
+	}
+
+	filtered := filterEvents(events, eventFilter{})
+	if len(filtered) != 2 {
+		t.Fatalf("default display level should hide only info events, got %d", len(filtered))
+	}
+	for _, event := range filtered {
+		if event.Type == model.EventInfo {
+			t.Fatalf("info event should be hidden by default: %#v", event)
+		}
+	}
+
+	important := filterEvents(events, eventFilter{LevelIndex: 1})
+	if len(important) != 1 || important[0].Type != model.EventPowerD0Exit {
+		t.Fatalf("important-only display level returned %#v", important)
+	}
+
+	all := filterEvents(events, eventFilter{LevelIndex: 2})
+	if len(all) != len(events) {
+		t.Fatalf("all display level returned %d events, want %d", len(all), len(events))
+	}
+}
+
 func TestEventMark(t *testing.T) {
 	cases := map[model.EventType]struct {
 		ja string
@@ -104,6 +132,12 @@ func TestLanguageStringsUseSingleLanguageLabels(t *testing.T) {
 	}
 	if len(en.deviceColumnTitles) != 7 || en.deviceColumnTitles[1] != "State" {
 		t.Fatalf("English device columns should include a state column: %#v", en.deviceColumnTitles)
+	}
+	if len(ja.levelOptions) != 3 || ja.levelOptions[0] != "Info以外" {
+		t.Fatalf("Japanese level options should default to no-info: %#v", ja.levelOptions)
+	}
+	if len(en.levelOptions) != 3 || en.levelOptions[0] != "No info" {
+		t.Fatalf("English level options should default to no-info: %#v", en.levelOptions)
 	}
 	if en.refreshButton != "Refresh" {
 		t.Fatalf("unexpected English refresh label: %q", en.refreshButton)

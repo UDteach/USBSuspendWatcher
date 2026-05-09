@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.0
+
+- Fixed elevated ETW helper startup for USB providers on Windows by using plain provider enable parameters.
+- Reduced ETW capture noise by limiting USB providers to the `Power` keyword by default.
+- Made USB rundown capture opt-in with `USB_SUSPEND_WATCH_ETW_RUNDOWN=1`.
+- Added a timeline display-level selector with `No info` as the default, plus `Important only` and `All`; default mode does not retain ETW `info` events in memory.
+- Added tests for ETW provider parameters and display-level filtering.
+
 ## v0.5.0
 
 - Added a current-state column to the connected USB device list.

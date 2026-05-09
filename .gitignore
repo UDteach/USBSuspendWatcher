@@ -1,0 +1,10 @@
+/dist/
+/logs/
+*.log
+*.tmp
+*.etl
+*.evtx
+*.local
+.env
+.env.*
+!.env.example

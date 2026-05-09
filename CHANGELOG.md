@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.2
+
+- Started the ETW session before enabling USB providers and enabled providers one by one, so one unavailable provider no longer prevents all ETW monitoring.
+- Added a GUI-side ETW startup timeout that records a clear error and allows retry if UAC is cancelled, hidden, or blocked before the helper writes its first log.
+- Included enabled ETW provider names in the helper running event for easier field diagnostics.
+
 ## v0.7.1
 
 - Added parent-process monitoring to the elevated ETW helper so an orphaned helper shuts down if the GUI exits unexpectedly.

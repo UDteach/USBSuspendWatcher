@@ -66,14 +66,8 @@ func Run(cfg Config) int {
 		defer parentWatch.Close()
 	}
 
-	session := etw.NewRealTimeSession(cfg.Session)
-	for _, provider := range providers() {
-		if err := session.AddProvider(provider); err != nil {
-			appendEvent(errorEvent("add ETW provider: " + err.Error()))
-			return 3
-		}
-	}
-	if err := session.Start(); err != nil {
+	session, enabledProviders, err := startUSBSession(cfg.Session, appendEvent)
+	if err != nil {
 		appendEvent(errorEvent("start ETW session: " + err.Error()))
 		return 3
 	}
@@ -104,6 +98,7 @@ func Run(cfg Config) int {
 		Source:     model.SourceApp,
 		Confidence: model.ConfidenceHigh,
 		Message:    "ETW helper running",
+		Raw:        map[string]string{"providers": strings.Join(enabledProviders, ",")},
 	})
 
 	for {
@@ -137,6 +132,41 @@ func Run(cfg Config) int {
 		case <-time.After(1 * time.Second):
 		}
 	}
+}
+
+func startUSBSession(name string, appendEvent func(model.Event)) (*etw.RealTimeSession, []string, error) {
+	session := etw.NewRealTimeSession(name)
+	if err := session.Start(); err != nil {
+		return nil, nil, err
+	}
+
+	var enabled []string
+	for _, provider := range providers() {
+		if err := session.EnableProvider(provider); err != nil {
+			appendEvent(model.Event{
+				Time:       time.Now(),
+				Type:       model.EventInfo,
+				Source:     model.SourceApp,
+				Confidence: model.ConfidenceLow,
+				Message:    "ETW provider unavailable: " + provider.Name + ": " + err.Error(),
+			})
+			continue
+		}
+		enabled = append(enabled, provider.Name)
+		appendEvent(model.Event{
+			Time:       time.Now(),
+			Type:       model.EventInfo,
+			Source:     model.SourceApp,
+			Confidence: model.ConfidenceHigh,
+			Message:    "ETW provider enabled: " + provider.Name,
+		})
+	}
+
+	if len(enabled) == 0 {
+		_ = session.Stop()
+		return nil, nil, fmt.Errorf("no USB ETW providers could be enabled")
+	}
+	return session, enabled, nil
 }
 
 type parentWatch struct {

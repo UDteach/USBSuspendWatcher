@@ -2,7 +2,7 @@
 
 USB Suspend Watch is an installer-free Windows desktop utility for watching connected USB devices and recording suspected USB Selective Suspend transitions.
 
-The v0.7.1 release uses one production-ready monitoring layer and one lab-only experimental layer:
+The v0.7.2 release uses one production-ready monitoring layer and one lab-only experimental layer:
 
 - Simple mode: runs without elevation, watches `WM_DEVICECHANGE`, polls SetupAPI, and reads `SPDRP_DEVICE_POWER_DATA`.
 - Experimental ETW mode: starts from the GUI button and may show UAC because Windows requires elevated rights for USB ETW sessions.
@@ -48,9 +48,10 @@ This is an inference from Windows device power data, not a kernel trace.
 
 ### Experimental ETW Mode
 
-The ETW helper is not considered production-ready in v0.7.1 because provider behavior differs by Windows build, permissions, and USB stack provider.
+The ETW helper is not considered production-ready in v0.7.2 because provider behavior differs by Windows build, permissions, and USB stack provider.
 
 For lab testing, click `Start ETW (experimental)`. Depending on the machine policy, this may show UAC. If UAC appears, approve it to start the elevated helper process.
+If no helper log appears within 45 seconds, the GUI records a retryable error so the app does not wait forever. The helper enables USB ETW providers one by one; if one provider is unavailable, the others can still run and the unavailable provider is written to the ETW helper log.
 
 The helper subscribes to:
 
@@ -110,7 +111,7 @@ go test ./...
 go vet ./...
 go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
-.\build.ps1 -Version v0.7.1
+.\build.ps1 -Version v0.7.2
 ```
 
 `go test -race` requires CGO and a C compiler on Windows. The release package is built with `CGO_ENABLED=0`.

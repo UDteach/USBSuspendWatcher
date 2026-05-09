@@ -2,6 +2,7 @@ package ui
 
 import (
 	"testing"
+	"time"
 
 	"usb-suspend-watch/internal/model"
 )
@@ -156,6 +157,66 @@ func TestTerminalETWHelperEvents(t *testing.T) {
 				t.Fatalf("isTerminalETWHelperEvent() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestETWHelperStartupEvents(t *testing.T) {
+	cases := []struct {
+		name  string
+		event model.Event
+		want  bool
+	}{
+		{
+			name:  "helper starting",
+			event: model.Event{Type: model.EventInfo, Source: model.SourceApp, Message: "ETW helper starting"},
+			want:  true,
+		},
+		{
+			name:  "provider enabled",
+			event: model.Event{Type: model.EventInfo, Source: model.SourceApp, Message: "ETW provider enabled: Microsoft-Windows-USB-USBHUB3"},
+			want:  true,
+		},
+		{
+			name:  "provider unavailable",
+			event: model.Event{Type: model.EventInfo, Source: model.SourceApp, Message: "ETW provider unavailable: Microsoft-Windows-USB-UCX: access denied"},
+			want:  true,
+		},
+		{
+			name:  "helper running",
+			event: model.Event{Type: model.EventInfo, Source: model.SourceApp, Message: "ETW helper running"},
+			want:  true,
+		},
+		{
+			name:  "helper error",
+			event: model.Event{Type: model.EventError, Source: model.SourceApp, Message: "start ETW session: access denied"},
+			want:  true,
+		},
+		{
+			name:  "setupapi event",
+			event: model.Event{Type: model.EventError, Source: model.SourceSetupAPIPoll, Message: "SetupAPI failed"},
+			want:  false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isETWHelperStartupEvent(tc.event); got != tc.want {
+				t.Fatalf("isETWHelperStartupEvent() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestETWStartupTimeout(t *testing.T) {
+	startedAt := time.Unix(100, 0)
+	if etwStartupHasTimedOut(false, startedAt, startedAt.Add(etwStartupTimeout-time.Second)) {
+		t.Fatalf("timeout fired too early")
+	}
+	if !etwStartupHasTimedOut(false, startedAt, startedAt.Add(etwStartupTimeout)) {
+		t.Fatalf("timeout should fire at threshold")
+	}
+	if etwStartupHasTimedOut(true, startedAt, startedAt.Add(10*etwStartupTimeout)) {
+		t.Fatalf("startup already seen should not time out")
 	}
 }
 

@@ -760,6 +760,8 @@ func (a *app) stopETW() {
 func (a *app) tailETWLog(ctx context.Context, path string, offset int64) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
+	startedAt := time.Now()
+	startupSeen := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -771,12 +773,19 @@ func (a *app) tailETWLog(ctx context.Context, path string, offset int64) {
 				continue
 			}
 			if len(events) == 0 {
+				if etwStartupHasTimedOut(startupSeen, startedAt, time.Now()) {
+					a.handleETWStartupTimeout()
+					return
+				}
 				continue
 			}
 			terminal := false
 			terminalError := false
 			a.mw.Synchronize(func() {
 				for _, event := range events {
+					if isETWHelperStartupEvent(event) {
+						startupSeen = true
+					}
 					if isTerminalETWHelperEvent(event) {
 						terminal = true
 						if event.Type == model.EventError {
@@ -806,12 +815,58 @@ func (a *app) tailETWLog(ctx context.Context, path string, offset int64) {
 	}
 }
 
+const etwStartupTimeout = 45 * time.Second
+
+func etwStartupHasTimedOut(startupSeen bool, startedAt, now time.Time) bool {
+	return !startupSeen && !startedAt.IsZero() && now.Sub(startedAt) >= etwStartupTimeout
+}
+
+func (a *app) handleETWStartupTimeout() {
+	a.mw.Synchronize(func() {
+		a.mu.Lock()
+		stopFile := a.etwStopFile
+		a.etwRunning = false
+		a.etwStopFile = ""
+		a.tailCancel = nil
+		a.mu.Unlock()
+		if stopFile != "" {
+			_ = os.WriteFile(stopFile, []byte(time.Now().Format(time.RFC3339)), 0644)
+		}
+		a.addEvent(model.Event{
+			Time:       time.Now(),
+			Type:       model.EventError,
+			Source:     model.SourceApp,
+			Confidence: model.ConfidenceLow,
+			Message:    "ETW helper did not write a startup log within 45 seconds; UAC may have been cancelled, hidden, or blocked by policy",
+		}, true)
+		a.updateStatus(statusETWFailed)
+	})
+}
+
 func (a *app) clearETWRunning() {
 	a.mu.Lock()
 	a.etwRunning = false
 	a.etwStopFile = ""
 	a.tailCancel = nil
 	a.mu.Unlock()
+}
+
+func isETWHelperStartupEvent(event model.Event) bool {
+	if event.Source != model.SourceApp {
+		return false
+	}
+	if event.Type == model.EventError {
+		return true
+	}
+	switch {
+	case strings.HasPrefix(event.Message, "ETW helper starting"),
+		strings.HasPrefix(event.Message, "ETW provider enabled:"),
+		strings.HasPrefix(event.Message, "ETW provider unavailable:"),
+		strings.HasPrefix(event.Message, "ETW helper running"):
+		return true
+	default:
+		return false
+	}
 }
 
 func isTerminalETWHelperEvent(event model.Event) bool {

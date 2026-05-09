@@ -51,9 +51,15 @@ func (p *Poller) RefreshNow() {
 	}
 }
 
+func (p *Poller) Prime() {
+	p.scan(false)
+}
+
 func (p *Poller) Run(ctx context.Context) {
 	defer close(p.events)
-	p.scan(false)
+	if !p.isReady() {
+		p.scan(false)
+	}
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
 	for {
@@ -66,6 +72,12 @@ func (p *Poller) Run(ctx context.Context) {
 			p.scan(true)
 		}
 	}
+}
+
+func (p *Poller) isReady() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.ready
 }
 
 func (p *Poller) scan(emit bool) {

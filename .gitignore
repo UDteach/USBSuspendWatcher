@@ -4,6 +4,7 @@
 *.tmp
 *.etl
 *.evtx
+*.syso
 *.local
 .env
 .env.*

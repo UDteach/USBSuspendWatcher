@@ -4,6 +4,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
+$manifest = Join-Path $root "cmd\usb-suspend-watch\app.manifest"
+$rsrc = Join-Path $root "cmd\usb-suspend-watch\rsrc_windows_amd64.syso"
 
 function Invoke-Checked {
     $filePath = $args[0]
@@ -21,6 +23,7 @@ function Invoke-Checked {
 Push-Location $root
 try {
     New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+    Invoke-Checked go run github.com/akavel/rsrc@v0.10.2 -manifest $manifest -o $rsrc
     Invoke-Checked go test ./...
 
     $ldflags = "-s -w -H=windowsgui -X main.version=$Version"
@@ -41,5 +44,8 @@ try {
     Write-Host "Built dist/SHA256SUMS.txt"
 }
 finally {
+    if (Test-Path $rsrc) {
+        Remove-Item $rsrc
+    }
     Pop-Location
 }

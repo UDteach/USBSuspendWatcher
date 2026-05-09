@@ -3,8 +3,6 @@ package ui
 import (
 	"context"
 	"fmt"
-	"image"
-	"image/color"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,13 +29,19 @@ type Config struct {
 type app struct {
 	cfg Config
 
-	mw          *walk.MainWindow
-	deviceView  *walk.TableView
-	eventView   *walk.TableView
-	details     *walk.TextEdit
-	statusLabel *walk.Label
-	notifyIcon  *walk.NotifyIcon
-	icon        *walk.Icon
+	mw               *walk.MainWindow
+	deviceView       *walk.TableView
+	eventView        *walk.TableView
+	details          *walk.TextEdit
+	statusLabel      *walk.Label
+	summaryLabel     *walk.Label
+	privilegeLabel   *walk.Label
+	logPathLabel     *walk.Label
+	eventTypeFilter  *walk.ComboBox
+	confidenceFilter *walk.ComboBox
+	eventSearch      *walk.LineEdit
+	notifyIcon       *walk.NotifyIcon
+	icon             *walk.Icon
 
 	devices *deviceTableModel
 	events  *eventTableModel
@@ -55,6 +59,8 @@ type app struct {
 	etwRunning  bool
 	etwStopFile string
 	mu          sync.Mutex
+
+	selectionChanging bool
 }
 
 func Run(cfg Config) error {
@@ -89,9 +95,10 @@ func Run(cfg Config) error {
 		a.cleanup()
 	}()
 
-	go a.poller.Run(ctx)
 	go a.consumePollerEvents()
 
+	a.poller.Prime()
+	go a.poller.Run(ctx)
 	a.refreshDevices()
 	a.addEvent(model.Event{
 		Time:       time.Now(),
@@ -129,34 +136,44 @@ func (a *app) createWindow() error {
 			d.Composite{
 				Layout: d.HBox{MarginsZero: true},
 				Children: []d.Widget{
-					d.PushButton{Text: "Refresh", OnClicked: a.refreshDevices},
-					d.PushButton{Text: "Start ETW (experimental)", OnClicked: a.startETW},
-					d.PushButton{Text: "Stop ETW", OnClicked: a.stopETW},
-					d.PushButton{Text: "Open log folder", OnClicked: a.openLogFolder},
-					d.PushButton{Text: "Export visible log", OnClicked: a.exportVisibleLog},
+					d.PushButton{Text: "更新 / Refresh", OnClicked: a.refreshDevices},
+					d.PushButton{Text: "ETW開始 実験 / Start ETW experimental", OnClicked: a.startETW},
+					d.PushButton{Text: "ETW停止 / Stop ETW", OnClicked: a.stopETW},
+					d.PushButton{Text: "ログフォルダ / Open logs", OnClicked: a.openLogFolder},
+					d.PushButton{Text: "表示ログ出力 / Export visible", OnClicked: a.exportVisibleLog},
 				},
 			},
-			d.Label{AssignTo: &a.statusLabel, Text: "starting", EllipsisMode: d.EllipsisPath},
+			d.GroupBox{
+				Title:  "監視状態 / Monitoring status",
+				Layout: d.Grid{Columns: 3, Margins: d.Margins{Left: 8, Top: 6, Right: 8, Bottom: 6}, Spacing: 6},
+				Children: []d.Widget{
+					d.Label{AssignTo: &a.statusLabel, Text: "監視 / Monitoring: starting", ColumnSpan: 2, EllipsisMode: d.EllipsisEnd},
+					d.Label{AssignTo: &a.privilegeLabel, Text: "権限 / Privilege: checking", EllipsisMode: d.EllipsisEnd},
+					d.Label{AssignTo: &a.summaryLabel, Text: "USB: 0 | Low power: 0 | Suspected suspend: 0 | Resume: 0", ColumnSpan: 2, EllipsisMode: d.EllipsisEnd},
+					d.Label{AssignTo: &a.logPathLabel, Text: "ログ / Log: " + a.logDir, EllipsisMode: d.EllipsisPath},
+				},
+			},
 			d.HSplitter{
 				Children: []d.Widget{
 					d.Composite{
 						Layout: d.VBox{MarginsZero: true},
 						Children: []d.Widget{
-							d.Label{Text: "Connected USB devices"},
+							d.Label{Text: "接続中USB / Connected USB devices"},
 							d.TableView{
 								AssignTo:         &a.deviceView,
 								AlternatingRowBG: true,
 								ColumnsOrderable: true,
 								Columns: []d.TableViewColumn{
-									{Title: "Name", Width: 260},
+									{Title: "Name", Width: 250},
 									{Title: "VID/PID", Width: 110},
 									{Title: "Power", Width: 70},
 									{Title: "Enumerator", Width: 90},
-									{Title: "Location", Width: 220},
+									{Title: "Location", Width: 180},
+									{Title: "Last seen", Width: 130},
 								},
 								Model: a.devices,
 								OnSelectedIndexesChanged: func() {
-									a.updateDetails()
+									a.onDeviceSelectionChanged()
 								},
 							},
 						},
@@ -166,22 +183,55 @@ func (a *app) createWindow() error {
 							d.Composite{
 								Layout: d.VBox{MarginsZero: true},
 								Children: []d.Widget{
-									d.Label{Text: "Suspend / Resume timeline"},
+									d.Label{Text: "Suspend / Resume タイムライン / Timeline"},
+									d.Composite{
+										Layout: d.VBox{MarginsZero: true, Spacing: 3},
+										Children: []d.Widget{
+											d.Composite{
+												Layout: d.HBox{MarginsZero: true},
+												Children: []d.Widget{
+													d.Label{Text: "種別 / Type"},
+													d.ComboBox{
+														AssignTo:              &a.eventTypeFilter,
+														Model:                 []string{"すべて / All", "Suspend疑い / Suspected", "Resume", "PnP", "Error"},
+														CurrentIndex:          0,
+														StretchFactor:         1,
+														OnCurrentIndexChanged: a.applyEventFilters,
+													},
+													d.Label{Text: "信頼度 / Confidence"},
+													d.ComboBox{
+														AssignTo:              &a.confidenceFilter,
+														Model:                 []string{"すべて / All", "High+Medium", "High only"},
+														CurrentIndex:          0,
+														StretchFactor:         1,
+														OnCurrentIndexChanged: a.applyEventFilters,
+													},
+												},
+											},
+											d.LineEdit{
+												AssignTo:      &a.eventSearch,
+												CueBanner:     "検索 / Search device, VID/PID, Instance ID, message",
+												StretchFactor: 1,
+												OnTextChanged: a.applyEventFilters,
+											},
+										},
+									},
 									d.TableView{
 										AssignTo:         &a.eventView,
 										AlternatingRowBG: true,
 										ColumnsOrderable: true,
 										Columns: []d.TableViewColumn{
+											{Title: "Mark", Width: 95},
 											{Title: "Time", Width: 150},
-											{Title: "Event", Width: 130},
+											{Title: "Event", Width: 125},
 											{Title: "Confidence", Width: 90},
 											{Title: "Source", Width: 120},
-											{Title: "Device", Width: 260},
-											{Title: "Message", Width: 360},
+											{Title: "Device", Width: 240},
+											{Title: "Message", Width: 340},
 										},
 										Model: a.events,
 										OnSelectedIndexesChanged: func() {
-											a.updateDetails()
+											a.onEventSelectionChanged()
 										},
 									},
 								},
@@ -191,7 +241,7 @@ func (a *app) createWindow() error {
 								ReadOnly: true,
 								VScroll:  true,
 								HScroll:  true,
-								Text:     "Select a device or event to inspect details.",
+								Text:     "デバイスまたはイベントを選択してください。\r\nSelect a device or event to inspect details.",
 							},
 						},
 					},
@@ -222,12 +272,16 @@ func (a *app) setupNotifyIcon() {
 		}
 	})
 	showAction := walk.NewAction()
-	_ = showAction.SetText("Show")
+	_ = showAction.SetText("表示 / Show")
 	showAction.Triggered().Attach(a.showFromTray)
+	logAction := walk.NewAction()
+	_ = logAction.SetText("ログフォルダ / Open logs")
+	logAction.Triggered().Attach(a.openLogFolder)
 	exitAction := walk.NewAction()
-	_ = exitAction.SetText("Exit")
+	_ = exitAction.SetText("終了 / Exit")
 	exitAction.Triggered().Attach(func() { walk.App().Exit(0) })
 	_ = ni.ContextMenu().Actions().Add(showAction)
+	_ = ni.ContextMenu().Actions().Add(logAction)
 	_ = ni.ContextMenu().Actions().Add(exitAction)
 	_ = ni.SetVisible(true)
 }
@@ -275,7 +329,7 @@ func (a *app) refreshDevices() {
 	})
 	a.devices.Set(devices)
 	a.updateDetails()
-	a.updateStatus(fmt.Sprintf("simple monitor running; %d USB devices; log: %s", len(devices), a.logger.Path()))
+	a.updateStatus("simple monitor running")
 }
 
 func (a *app) addEvent(event model.Event, persist bool) {
@@ -286,9 +340,35 @@ func (a *app) addEvent(event model.Event, persist bool) {
 	if persist {
 		_ = a.logger.Append(event)
 	}
-	if a.eventView != nil && a.events.RowCount() > 0 {
+	if a.eventView != nil && a.events.RowCount() > 0 && eventMatchesFilter(event, a.events.filter) {
 		_ = a.eventView.SetSelectedIndexes([]int{a.events.RowCount() - 1})
 	}
+	a.updateSummary()
+	a.notifyImportantEvent(event)
+}
+
+func (a *app) onDeviceSelectionChanged() {
+	if a.selectionChanging {
+		return
+	}
+	if selectedIndex(a.deviceView) >= 0 && a.eventView != nil {
+		a.selectionChanging = true
+		_ = a.eventView.SetSelectedIndexes([]int{})
+		a.selectionChanging = false
+	}
+	a.updateDetails()
+}
+
+func (a *app) onEventSelectionChanged() {
+	if a.selectionChanging {
+		return
+	}
+	if selectedIndex(a.eventView) >= 0 && a.deviceView != nil {
+		a.selectionChanging = true
+		_ = a.deviceView.SetSelectedIndexes([]int{})
+		a.selectionChanging = false
+	}
+	a.updateDetails()
 }
 
 func (a *app) updateDetails() {
@@ -307,7 +387,7 @@ func (a *app) updateDetails() {
 			return
 		}
 	}
-	a.details.SetText("Select a device or event to inspect details.")
+	a.details.SetText("デバイスまたはイベントを選択してください。\r\nSelect a device or event to inspect details.")
 }
 
 func selectedIndex(tv *walk.TableView) int {
@@ -332,7 +412,59 @@ func (a *app) updateStatus(text string) {
 	if a.etwRunning {
 		text = "precise ETW requested; " + text
 	}
-	a.statusLabel.SetText(fmt.Sprintf("%s | %s | v%s", text, admin, versionOrDev(a.cfg.Version)))
+	a.statusLabel.SetText(fmt.Sprintf("監視 / Monitoring: %s | v%s", text, versionOrDev(a.cfg.Version)))
+	if a.privilegeLabel != nil {
+		a.privilegeLabel.SetText("権限 / Privilege: " + admin)
+	}
+	a.updateSummary()
+}
+
+func (a *app) updateSummary() {
+	if a.summaryLabel == nil {
+		return
+	}
+	stats := a.events.Stats()
+	devices := a.devices.All()
+	lowPower := 0
+	for _, device := range devices {
+		if model.IsLowPowerState(device.PowerState) {
+			lowPower++
+		}
+	}
+	a.summaryLabel.SetText(fmt.Sprintf(
+		"USB: %d | 低電力 / Low power: %d | Suspend疑い / Suspected: %d | Resume: %d | 表示 / Visible: %d",
+		len(devices),
+		lowPower,
+		stats.SuspectedSuspend,
+		stats.Resume,
+		a.events.RowCount(),
+	))
+	if a.logPathLabel != nil && a.logger != nil {
+		a.logPathLabel.SetText("ログ / Log: " + a.logger.Path())
+	}
+}
+
+func (a *app) applyEventFilters() {
+	if a.events == nil {
+		return
+	}
+	a.events.SetFilter(a.currentEventFilter())
+	a.updateDetails()
+	a.updateSummary()
+}
+
+func (a *app) currentEventFilter() eventFilter {
+	filter := eventFilter{}
+	if a.eventTypeFilter != nil {
+		filter.TypeIndex = a.eventTypeFilter.CurrentIndex()
+	}
+	if a.confidenceFilter != nil {
+		filter.ConfidenceIndex = a.confidenceFilter.CurrentIndex()
+	}
+	if a.eventSearch != nil {
+		filter.Query = a.eventSearch.Text()
+	}
+	return filter
 }
 
 func (a *app) handleDeviceChange(wParam uintptr) {
@@ -472,7 +604,7 @@ func (a *app) openLogFolder() {
 
 func (a *app) exportVisibleLog() {
 	dlg := new(walk.FileDialog)
-	dlg.Title = "Export visible JSONL log"
+	dlg.Title = "表示ログ出力 / Export visible JSONL log"
 	dlg.FilePath = filepath.Join(a.logDir, "usb-suspend-watch-export.jsonl")
 	dlg.Filter = "JSON Lines (*.jsonl)|*.jsonl|All files (*.*)|*.*"
 	ok, err := dlg.ShowSave(a.mw)
@@ -492,7 +624,7 @@ func (a *app) hideToTray() {
 	}
 	a.mw.SetVisible(false)
 	if a.notifyIcon != nil {
-		_ = a.notifyIcon.ShowInfo("USB Suspend Watch", "Still monitoring USB devices in the tray.")
+		_ = a.notifyIcon.SetToolTip("USB Suspend Watch - monitoring")
 	}
 }
 
@@ -505,190 +637,36 @@ func (a *app) showFromTray() {
 	win.BringWindowToTop(a.mw.Handle())
 }
 
-type deviceTableModel struct {
-	walk.TableModelBase
-	items []model.DeviceSnapshot
-}
-
-func newDeviceTableModel() *deviceTableModel {
-	return &deviceTableModel{}
-}
-
-func (m *deviceTableModel) RowCount() int {
-	return len(m.items)
-}
-
-func (m *deviceTableModel) Value(row, col int) interface{} {
-	d := m.items[row]
-	switch col {
-	case 0:
-		return d.DisplayName()
-	case 1:
-		return d.VIDPID()
-	case 2:
-		return string(d.PowerState)
-	case 3:
-		return d.Enumerator
-	case 4:
-		return d.Location
+func (a *app) notifyImportantEvent(event model.Event) {
+	if a.notifyIcon == nil || !isTrayNotificationEvent(event.Type) {
+		return
+	}
+	if a.mw != nil && a.mw.Visible() && !win.IsIconic(a.mw.Handle()) {
+		return
+	}
+	device := event.Device.DisplayName()
+	if strings.TrimSpace(device) == "" || device == "(unknown USB device)" {
+		device = "USB device"
+	}
+	message := device
+	if event.Message != "" {
+		message = event.Message
+	}
+	switch event.Type {
+	case model.EventError:
+		_ = a.notifyIcon.ShowError("USB Suspend Watch", message)
+	case model.EventResume, model.EventPowerD0Entry:
+		_ = a.notifyIcon.ShowInfo("USB Resume", message)
 	default:
-		return ""
+		_ = a.notifyIcon.ShowWarning("USB Suspend suspected", message)
 	}
 }
 
-func (m *deviceTableModel) Set(items []model.DeviceSnapshot) {
-	m.items = items
-	m.PublishRowsReset()
-}
-
-func (m *deviceTableModel) Item(row int) (model.DeviceSnapshot, bool) {
-	if row < 0 || row >= len(m.items) {
-		return model.DeviceSnapshot{}, false
-	}
-	return m.items[row], true
-}
-
-type eventTableModel struct {
-	walk.TableModelBase
-	items []model.Event
-	limit int
-}
-
-func newEventTableModel(limit int) *eventTableModel {
-	return &eventTableModel{limit: limit}
-}
-
-func (m *eventTableModel) RowCount() int {
-	return len(m.items)
-}
-
-func (m *eventTableModel) Value(row, col int) interface{} {
-	e := m.items[row]
-	switch col {
-	case 0:
-		return e.Time.Format("2006-01-02 15:04:05")
-	case 1:
-		return string(e.Type)
-	case 2:
-		return string(e.Confidence)
-	case 3:
-		return string(e.Source)
-	case 4:
-		return e.Device.DisplayName()
-	case 5:
-		return e.Message
+func isTrayNotificationEvent(eventType model.EventType) bool {
+	switch eventType {
+	case model.EventSuspectSuspend, model.EventResume, model.EventError:
+		return true
 	default:
-		return ""
+		return false
 	}
-}
-
-func (m *eventTableModel) Add(event model.Event) {
-	m.items = append(m.items, event)
-	if m.limit > 0 && len(m.items) > m.limit {
-		m.items = m.items[len(m.items)-m.limit:]
-	}
-	m.PublishRowsReset()
-}
-
-func (m *eventTableModel) Item(row int) (model.Event, bool) {
-	if row < 0 || row >= len(m.items) {
-		return model.Event{}, false
-	}
-	return m.items[row], true
-}
-
-func (m *eventTableModel) All() []model.Event {
-	out := make([]model.Event, len(m.items))
-	copy(out, m.items)
-	return out
-}
-
-func formatDevice(d model.DeviceSnapshot) string {
-	lines := []string{
-		"Device",
-		"Name: " + d.DisplayName(),
-		"Instance ID: " + d.InstanceID,
-		"Hardware ID: " + d.HardwareID,
-		"VID/PID: " + d.VIDPID(),
-		"Revision: " + d.Revision,
-		"Serial: " + d.Serial,
-		"Power state: " + string(d.PowerState),
-		"Manufacturer: " + d.Manufacturer,
-		"Service: " + d.Service,
-		"Class: " + d.Class,
-		"Enumerator: " + d.Enumerator,
-		"Location: " + d.Location,
-		"Last seen: " + d.LastSeen.Format(time.RFC3339),
-	}
-	return strings.Join(lines, "\r\n")
-}
-
-func formatEvent(e model.Event) string {
-	lines := []string{
-		"Event",
-		"Time: " + e.Time.Format(time.RFC3339Nano),
-		"Type: " + string(e.Type),
-		"Source: " + string(e.Source),
-		"Confidence: " + string(e.Confidence),
-		"Message: " + e.Message,
-		"Provider: " + e.Provider,
-		fmt.Sprintf("Event ID: %d", e.EventID),
-		"",
-		formatDevice(e.Device),
-	}
-	if len(e.Raw) > 0 {
-		lines = append(lines, "", "Raw ETW properties:")
-		keys := make([]string, 0, len(e.Raw))
-		for key := range e.Raw {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			lines = append(lines, key+": "+e.Raw[key])
-		}
-	}
-	return strings.Join(lines, "\r\n")
-}
-
-func buildIcon() (*walk.Icon, error) {
-	img := image.NewRGBA(image.Rect(0, 0, 32, 32))
-	bg := color.RGBA{R: 32, G: 48, B: 66, A: 255}
-	accent := color.RGBA{R: 60, G: 190, B: 180, A: 255}
-	hot := color.RGBA{R: 255, G: 190, B: 82, A: 255}
-	for y := 0; y < 32; y++ {
-		for x := 0; x < 32; x++ {
-			img.Set(x, y, bg)
-		}
-	}
-	for y := 7; y < 25; y++ {
-		for x := 13; x < 19; x++ {
-			img.Set(x, y, accent)
-		}
-	}
-	for y := 20; y < 26; y++ {
-		for x := 8; x < 24; x++ {
-			img.Set(x, y, accent)
-		}
-	}
-	for y := 4; y < 9; y++ {
-		for x := 11; x < 14; x++ {
-			img.Set(x, y, hot)
-		}
-		for x := 18; x < 21; x++ {
-			img.Set(x, y, hot)
-		}
-	}
-	for y := 11; y < 14; y++ {
-		for x := 20; x < 26; x++ {
-			img.Set(x, y, hot)
-		}
-	}
-	return walk.NewIconFromImageForDPI(img, 96)
-}
-
-func versionOrDev(v string) string {
-	if v == "" {
-		return "dev"
-	}
-	return v
 }

@@ -9,10 +9,15 @@ import (
 	"usb-suspend-watch/internal/model"
 )
 
-func formatDevice(d model.DeviceSnapshot, language displayLanguage) string {
+func formatDevice(d model.DeviceSnapshot, language displayLanguage, monitored bool) string {
 	text := stringsFor(language)
+	monitoring := text.monitorOff
+	if monitored {
+		monitoring = text.monitorOn
+	}
 	lines := []string{
 		text.deviceDetailsTitle,
+		text.deviceMonitoring + ": " + monitoring,
 		text.deviceName + ": " + d.DisplayName(),
 		"Instance ID: " + d.InstanceID,
 		"Hardware ID: " + d.HardwareID,
@@ -30,7 +35,7 @@ func formatDevice(d model.DeviceSnapshot, language displayLanguage) string {
 	return strings.Join(lines, "\r\n")
 }
 
-func formatEvent(e model.Event, language displayLanguage) string {
+func formatEvent(e model.Event, language displayLanguage, monitored bool) string {
 	text := stringsFor(language)
 	lines := []string{
 		text.eventDetailsTitle,
@@ -43,7 +48,7 @@ func formatEvent(e model.Event, language displayLanguage) string {
 		"Provider: " + e.Provider,
 		fmt.Sprintf("Event ID: %d", e.EventID),
 		"",
-		formatDevice(e.Device, language),
+		formatDevice(e.Device, language, monitored),
 	}
 	if len(e.Raw) > 0 {
 		lines = append(lines, "", text.rawETWProperties+":")

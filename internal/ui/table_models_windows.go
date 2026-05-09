@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/lxn/walk"
 
 	"usb-suspend-watch/internal/model"
@@ -8,11 +10,13 @@ import (
 
 type deviceTableModel struct {
 	walk.TableModelBase
-	items []model.DeviceSnapshot
+	items            []model.DeviceSnapshot
+	monitoredByKey   map[string]bool
+	onMonitorChanged func(device model.DeviceSnapshot, monitored bool)
 }
 
 func newDeviceTableModel() *deviceTableModel {
-	return &deviceTableModel{}
+	return &deviceTableModel{monitoredByKey: make(map[string]bool)}
 }
 
 func (m *deviceTableModel) RowCount() int {
@@ -43,6 +47,13 @@ func (m *deviceTableModel) Value(row, col int) interface{} {
 }
 
 func (m *deviceTableModel) Set(items []model.DeviceSnapshot) {
+	for _, item := range items {
+		for _, key := range deviceMonitorKeys(item) {
+			if _, ok := m.monitoredByKey[key]; !ok {
+				m.monitoredByKey[key] = true
+			}
+		}
+	}
 	m.items = items
 	m.PublishRowsReset()
 }
@@ -58,6 +69,87 @@ func (m *deviceTableModel) All() []model.DeviceSnapshot {
 	out := make([]model.DeviceSnapshot, len(m.items))
 	copy(out, m.items)
 	return out
+}
+
+func (m *deviceTableModel) Checked(row int) bool {
+	if row < 0 || row >= len(m.items) {
+		return false
+	}
+	return m.IsMonitored(m.items[row])
+}
+
+func (m *deviceTableModel) SetChecked(row int, checked bool) error {
+	if row < 0 || row >= len(m.items) {
+		return nil
+	}
+	device := m.items[row]
+	for _, key := range deviceMonitorKeys(device) {
+		m.monitoredByKey[key] = checked
+	}
+	m.PublishRowChanged(row)
+	if m.onMonitorChanged != nil {
+		m.onMonitorChanged(device, checked)
+	}
+	return nil
+}
+
+func (m *deviceTableModel) IsMonitored(device model.DeviceSnapshot) bool {
+	keys := deviceMonitorKeys(device)
+	if len(keys) == 0 {
+		return true
+	}
+	for _, key := range keys {
+		if monitored, ok := m.monitoredByKey[key]; ok {
+			return monitored
+		}
+	}
+	return true
+}
+
+func (m *deviceTableModel) IsMonitoredKey(key string) bool {
+	if key == "" {
+		return true
+	}
+	monitored, ok := m.monitoredByKey[key]
+	if !ok {
+		return true
+	}
+	return monitored
+}
+
+func (m *deviceTableModel) MonitoredCount() int {
+	count := 0
+	for _, device := range m.items {
+		if m.IsMonitored(device) {
+			count++
+		}
+	}
+	return count
+}
+
+func deviceMonitorKeys(device model.DeviceSnapshot) []string {
+	candidates := []string{
+		device.InstanceID,
+		device.HardwareID,
+		device.VIDPID(),
+	}
+	if displayName := device.DisplayName(); displayName != "(unknown USB device)" {
+		candidates = append(candidates, displayName)
+	}
+	keys := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		key := strings.ToLower(strings.TrimSpace(candidate))
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 type eventTableModel struct {

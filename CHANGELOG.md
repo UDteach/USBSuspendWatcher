@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.4.0
+
+- Added per-device monitoring checkboxes to the connected USB device list.
+- New devices are monitored by default; unchecked devices remain disabled across refreshes within the running session.
+- Suppressed device-specific timeline events, logs, and tray notifications for unchecked monitoring targets.
+- Added monitored-target counts to the status summary.
+- Added unit tests for monitoring state persistence and event suppression.
+
 ## v0.3.0
 
 - Added a Japanese/English language dropdown in the main toolbar.

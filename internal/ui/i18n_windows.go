@@ -46,6 +46,7 @@ type uiStrings struct {
 	emptyDetails          string
 
 	deviceDetailsTitle  string
+	deviceMonitoring    string
 	deviceName          string
 	devicePowerState    string
 	deviceManufacturer  string
@@ -73,6 +74,8 @@ type uiStrings struct {
 	notifyResumeTitle   string
 	notifySuspendTitle  string
 	unknownUSBDevice    string
+	monitorOn           string
+	monitorOff          string
 
 	statusText map[string]string
 }
@@ -115,7 +118,7 @@ func japaneseStrings() uiStrings {
 		standardUser:          "標準ユーザー",
 		administrator:         "管理者",
 		preciseETWRequested:   "精密ETW要求中",
-		summaryFormat:         "USB: %d | 低電力: %d | Suspend疑い: %d | Resume: %d | 表示: %d",
+		summaryFormat:         "USB: %d | 監視: %d | 低電力: %d | Suspend疑い: %d | Resume: %d | 表示: %d",
 		logPrefix:             "ログ",
 
 		connectedDevicesTitle: "接続中USB",
@@ -125,11 +128,12 @@ func japaneseStrings() uiStrings {
 		searchCue:             "デバイス名、VID/PID、Instance ID、メッセージを検索",
 		typeOptions:           []string{"すべて", "Suspend疑い", "Resume", "PnP", "エラー"},
 		confidenceOptions:     []string{"すべて", "High+Medium", "High only"},
-		deviceColumnTitles:    []string{"名前", "VID/PID", "電源", "列挙子", "場所", "最終確認"},
+		deviceColumnTitles:    []string{"監視・名前", "VID/PID", "電源", "列挙子", "場所", "最終確認"},
 		eventColumnTitles:     []string{"重要", "時刻", "イベント", "信頼度", "ソース", "デバイス", "メッセージ"},
 		emptyDetails:          "デバイスまたはイベントを選択してください。",
 
 		deviceDetailsTitle:  "デバイス",
+		deviceMonitoring:    "監視",
 		deviceName:          "名前",
 		devicePowerState:    "電源状態",
 		deviceManufacturer:  "製造元",
@@ -157,6 +161,8 @@ func japaneseStrings() uiStrings {
 		notifyResumeTitle:   "USB Resume",
 		notifySuspendTitle:  "USB Suspend疑い",
 		unknownUSBDevice:    "USBデバイス",
+		monitorOn:           "ON",
+		monitorOff:          "OFF",
 
 		statusText: map[string]string{
 			statusSimpleMonitorRunning: "簡易監視中",
@@ -185,7 +191,7 @@ func englishStrings() uiStrings {
 		standardUser:          "standard user",
 		administrator:         "administrator",
 		preciseETWRequested:   "precise ETW requested",
-		summaryFormat:         "USB: %d | Low power: %d | Suspected: %d | Resume: %d | Visible: %d",
+		summaryFormat:         "USB: %d | Monitored: %d | Low power: %d | Suspected: %d | Resume: %d | Visible: %d",
 		logPrefix:             "Log",
 
 		connectedDevicesTitle: "Connected USB devices",
@@ -195,11 +201,12 @@ func englishStrings() uiStrings {
 		searchCue:             "Search device, VID/PID, Instance ID, message",
 		typeOptions:           []string{"All", "Suspected suspend", "Resume", "PnP", "Error"},
 		confidenceOptions:     []string{"All", "High+Medium", "High only"},
-		deviceColumnTitles:    []string{"Name", "VID/PID", "Power", "Enumerator", "Location", "Last seen"},
+		deviceColumnTitles:    []string{"Monitor / Name", "VID/PID", "Power", "Enumerator", "Location", "Last seen"},
 		eventColumnTitles:     []string{"Mark", "Time", "Event", "Confidence", "Source", "Device", "Message"},
 		emptyDetails:          "Select a device or event to inspect details.",
 
 		deviceDetailsTitle:  "Device",
+		deviceMonitoring:    "Monitoring",
 		deviceName:          "Name",
 		devicePowerState:    "Power state",
 		deviceManufacturer:  "Manufacturer",
@@ -227,6 +234,8 @@ func englishStrings() uiStrings {
 		notifyResumeTitle:   "USB Resume",
 		notifySuspendTitle:  "USB Suspend suspected",
 		unknownUSBDevice:    "USB device",
+		monitorOn:           "On",
+		monitorOff:          "Off",
 
 		statusText: map[string]string{
 			statusSimpleMonitorRunning: "simple monitor running",

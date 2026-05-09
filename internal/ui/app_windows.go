@@ -104,6 +104,7 @@ func Run(cfg Config) error {
 		cancel:   cancel,
 		language: languageJapanese,
 	}
+	a.devices.onMonitorChanged = a.onDeviceMonitorChanged
 
 	if err := a.createWindow(); err != nil {
 		cancel()
@@ -178,7 +179,7 @@ func (a *app) createWindow() error {
 				Children: []d.Widget{
 					d.Label{AssignTo: &a.statusLabel, Text: text.monitoringPrefix + ": starting", ColumnSpan: 2, EllipsisMode: d.EllipsisEnd},
 					d.Label{AssignTo: &a.privilegeLabel, Text: text.privilegePrefix + ": " + text.privilegeChecking, EllipsisMode: d.EllipsisEnd},
-					d.Label{AssignTo: &a.summaryLabel, Text: fmt.Sprintf(text.summaryFormat, 0, 0, 0, 0, 0), ColumnSpan: 2, EllipsisMode: d.EllipsisEnd},
+					d.Label{AssignTo: &a.summaryLabel, Text: fmt.Sprintf(text.summaryFormat, 0, 0, 0, 0, 0, 0), ColumnSpan: 2, EllipsisMode: d.EllipsisEnd},
 					d.Label{AssignTo: &a.logPathLabel, Text: text.logPrefix + ": " + a.logDir, EllipsisMode: d.EllipsisPath},
 				},
 			},
@@ -191,6 +192,7 @@ func (a *app) createWindow() error {
 							d.TableView{
 								AssignTo:         &a.deviceView,
 								AlternatingRowBG: true,
+								CheckBoxes:       true,
 								ColumnsOrderable: true,
 								Columns: []d.TableViewColumn{
 									{Title: text.deviceColumnTitles[0], Width: 250},
@@ -367,6 +369,9 @@ func (a *app) refreshDevices() {
 }
 
 func (a *app) addEvent(event model.Event, persist bool) {
+	if !a.isEventMonitored(event) {
+		return
+	}
 	if event.Time.IsZero() {
 		event.Time = time.Now()
 	}
@@ -405,19 +410,24 @@ func (a *app) onEventSelectionChanged() {
 	a.updateDetails()
 }
 
+func (a *app) onDeviceMonitorChanged(model.DeviceSnapshot, bool) {
+	a.updateSummary()
+	a.updateDetails()
+}
+
 func (a *app) updateDetails() {
 	if a.details == nil {
 		return
 	}
 	if idx := selectedIndex(a.eventView); idx >= 0 {
 		if event, ok := a.events.Item(idx); ok {
-			a.details.SetText(formatEvent(event, a.language))
+			a.details.SetText(formatEvent(event, a.language, a.devices.IsMonitored(event.Device)))
 			return
 		}
 	}
 	if idx := selectedIndex(a.deviceView); idx >= 0 {
 		if device, ok := a.devices.Item(idx); ok {
-			a.details.SetText(formatDevice(device, a.language))
+			a.details.SetText(formatDevice(device, a.language, a.devices.IsMonitored(device)))
 			return
 		}
 	}
@@ -472,6 +482,7 @@ func (a *app) updateSummary() {
 	a.summaryLabel.SetText(fmt.Sprintf(
 		strings.summaryFormat,
 		len(devices),
+		a.devices.MonitoredCount(),
 		lowPower,
 		stats.SuspectedSuspend,
 		stats.Resume,
@@ -480,6 +491,22 @@ func (a *app) updateSummary() {
 	if a.logPathLabel != nil && a.logger != nil {
 		a.logPathLabel.SetText(strings.logPrefix + ": " + a.logger.Path())
 	}
+}
+
+func (a *app) isEventMonitored(event model.Event) bool {
+	if a.devices == nil {
+		return true
+	}
+	keys := deviceMonitorKeys(event.Device)
+	if len(keys) == 0 {
+		return true
+	}
+	for _, key := range keys {
+		if !a.devices.IsMonitoredKey(key) {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *app) applyEventFilters() {

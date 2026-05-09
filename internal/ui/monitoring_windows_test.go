@@ -63,6 +63,94 @@ func TestDeviceMonitoringAliasesCoverHardwareIDEvents(t *testing.T) {
 	}
 }
 
+func TestDeviceCurrentStateReflectsMonitoringAndPower(t *testing.T) {
+	cases := []struct {
+		name      string
+		device    model.DeviceSnapshot
+		monitored bool
+		language  displayLanguage
+		want      string
+	}{
+		{
+			name:      "monitoring off",
+			device:    model.DeviceSnapshot{Present: true, PowerState: model.PowerD0},
+			monitored: false,
+			language:  languageEnglish,
+			want:      "Monitoring off",
+		},
+		{
+			name:      "active japanese",
+			device:    model.DeviceSnapshot{Present: true, PowerState: model.PowerD0},
+			monitored: true,
+			language:  languageJapanese,
+			want:      "動作中 (D0)",
+		},
+		{
+			name:      "low power english",
+			device:    model.DeviceSnapshot{Present: true, PowerState: model.PowerD2},
+			monitored: true,
+			language:  languageEnglish,
+			want:      "Low power / suspected suspend (D2)",
+		},
+		{
+			name:      "unknown",
+			device:    model.DeviceSnapshot{Present: true, PowerState: model.PowerUnknown},
+			monitored: true,
+			language:  languageEnglish,
+			want:      "Unknown",
+		},
+		{
+			name:      "removed",
+			device:    model.DeviceSnapshot{InstanceID: `USB\VID_0BDA&PID_0129\A`, Present: false, PowerState: model.PowerD0},
+			monitored: true,
+			language:  languageEnglish,
+			want:      "Removed",
+		},
+		{
+			name:      "empty app-level device",
+			device:    model.DeviceSnapshot{},
+			monitored: true,
+			language:  languageEnglish,
+			want:      "Unknown",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := deviceCurrentState(tc.device, tc.monitored, tc.language); got != tc.want {
+				t.Fatalf("deviceCurrentState() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDeviceTableModelShowsStateColumnAndLanguage(t *testing.T) {
+	m := newDeviceTableModel()
+	device := model.DeviceSnapshot{
+		InstanceID:   `USB\VID_0BDA&PID_0129\A`,
+		FriendlyName: "USB Reader",
+		Present:      true,
+		PowerState:   model.PowerD3,
+	}
+
+	m.Set([]model.DeviceSnapshot{device})
+	if got := m.Value(0, 1); got != "低電力 / Suspend疑い (D3)" {
+		t.Fatalf("Japanese state column = %q", got)
+	}
+
+	m.SetLanguage(languageEnglish)
+	if got := m.Value(0, 1); got != "Low power / suspected suspend (D3)" {
+		t.Fatalf("English state column = %q", got)
+	}
+
+	if err := m.SetChecked(0, false); err != nil {
+		t.Fatalf("SetChecked returned error: %v", err)
+	}
+	if got := m.Value(0, 1); got != "Monitoring off" {
+		t.Fatalf("unchecked state column = %q", got)
+	}
+}
+
 func TestAppSuppressesEventsForUnmonitoredDevice(t *testing.T) {
 	device := model.DeviceSnapshot{
 		InstanceID: `USB\VID_0BDA&PID_0129\A`,

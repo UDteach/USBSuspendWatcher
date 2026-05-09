@@ -99,6 +99,12 @@ func TestLanguageStringsUseSingleLanguageLabels(t *testing.T) {
 	if ja.languageLabel != "Language" {
 		t.Fatalf("unexpected Japanese language selector label: %q", ja.languageLabel)
 	}
+	if len(ja.deviceColumnTitles) != 7 || ja.deviceColumnTitles[1] != "状態" {
+		t.Fatalf("Japanese device columns should include a state column: %#v", ja.deviceColumnTitles)
+	}
+	if len(en.deviceColumnTitles) != 7 || en.deviceColumnTitles[1] != "State" {
+		t.Fatalf("English device columns should include a state column: %#v", en.deviceColumnTitles)
+	}
 	if en.refreshButton != "Refresh" {
 		t.Fatalf("unexpected English refresh label: %q", en.refreshButton)
 	}

@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.0
+
+- Added a current-state column to the connected USB device list.
+- The state column shows monitoring-off targets, active D0 devices, low-power/suspected-suspend devices, removed devices, and unknown state in the selected language.
+- Added the same current-state summary to the selected device details pane.
+- Added unit tests for device state labels and localized device-table columns.
+
 ## v0.4.1
 
 - Kept the language selector label as `Language` even in Japanese mode so English-speaking users can find it quickly.

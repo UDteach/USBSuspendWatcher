@@ -12,11 +12,12 @@ type deviceTableModel struct {
 	walk.TableModelBase
 	items            []model.DeviceSnapshot
 	monitoredByKey   map[string]bool
+	language         displayLanguage
 	onMonitorChanged func(device model.DeviceSnapshot, monitored bool)
 }
 
 func newDeviceTableModel() *deviceTableModel {
-	return &deviceTableModel{monitoredByKey: make(map[string]bool)}
+	return &deviceTableModel{monitoredByKey: make(map[string]bool), language: languageJapanese}
 }
 
 func (m *deviceTableModel) RowCount() int {
@@ -29,14 +30,16 @@ func (m *deviceTableModel) Value(row, col int) interface{} {
 	case 0:
 		return d.DisplayName()
 	case 1:
-		return d.VIDPID()
+		return deviceCurrentState(d, m.IsMonitored(d), m.language)
 	case 2:
-		return string(d.PowerState)
+		return d.VIDPID()
 	case 3:
-		return d.Enumerator
+		return string(d.PowerState)
 	case 4:
-		return d.Location
+		return d.Enumerator
 	case 5:
+		return d.Location
+	case 6:
 		if d.LastSeen.IsZero() {
 			return ""
 		}
@@ -55,6 +58,11 @@ func (m *deviceTableModel) Set(items []model.DeviceSnapshot) {
 		}
 	}
 	m.items = items
+	m.PublishRowsReset()
+}
+
+func (m *deviceTableModel) SetLanguage(language displayLanguage) {
+	m.language = language
 	m.PublishRowsReset()
 }
 
@@ -125,6 +133,36 @@ func (m *deviceTableModel) MonitoredCount() int {
 		}
 	}
 	return count
+}
+
+func deviceCurrentState(device model.DeviceSnapshot, monitored bool, language displayLanguage) string {
+	text := stringsFor(language)
+	if !monitored {
+		return text.deviceStateMonitoringOff
+	}
+	if !device.Present {
+		if !hasDeviceIdentity(device) {
+			return text.deviceStateUnknown
+		}
+		return text.deviceStateRemoved
+	}
+	switch {
+	case device.PowerState == model.PowerD0:
+		return text.deviceStateActive + " (D0)"
+	case model.IsLowPowerState(device.PowerState):
+		return text.deviceStateLowPower + " (" + string(device.PowerState) + ")"
+	case device.PowerState == "" || device.PowerState == model.PowerUnknown:
+		return text.deviceStateUnknown
+	default:
+		return string(device.PowerState)
+	}
+}
+
+func hasDeviceIdentity(device model.DeviceSnapshot) bool {
+	return strings.TrimSpace(device.InstanceID) != "" ||
+		strings.TrimSpace(device.HardwareID) != "" ||
+		strings.TrimSpace(device.FriendlyName) != "" ||
+		strings.TrimSpace(device.Description) != ""
 }
 
 func deviceMonitorKeys(device model.DeviceSnapshot) []string {

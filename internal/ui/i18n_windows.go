@@ -45,37 +45,43 @@ type uiStrings struct {
 	eventColumnTitles     []string
 	emptyDetails          string
 
-	deviceDetailsTitle  string
-	deviceMonitoring    string
-	deviceName          string
-	devicePowerState    string
-	deviceManufacturer  string
-	deviceLocation      string
-	deviceLastSeen      string
-	eventDetailsTitle   string
-	eventMark           string
-	eventTime           string
-	eventType           string
-	eventConfidence     string
-	eventMessage        string
-	rawETWProperties    string
-	markSuspend         string
-	markResume          string
-	markError           string
-	markPnPArrival      string
-	markPnPRemoval      string
-	exportDialogTitle   string
-	exportFailedTitle   string
-	exportCompleteTitle string
-	trayShow            string
-	trayOpenLogs        string
-	trayExit            string
-	trayTooltip         string
-	notifyResumeTitle   string
-	notifySuspendTitle  string
-	unknownUSBDevice    string
-	monitorOn           string
-	monitorOff          string
+	deviceDetailsTitle       string
+	deviceMonitoring         string
+	deviceState              string
+	deviceName               string
+	devicePowerState         string
+	deviceManufacturer       string
+	deviceLocation           string
+	deviceLastSeen           string
+	eventDetailsTitle        string
+	eventMark                string
+	eventTime                string
+	eventType                string
+	eventConfidence          string
+	eventMessage             string
+	rawETWProperties         string
+	markSuspend              string
+	markResume               string
+	markError                string
+	markPnPArrival           string
+	markPnPRemoval           string
+	exportDialogTitle        string
+	exportFailedTitle        string
+	exportCompleteTitle      string
+	trayShow                 string
+	trayOpenLogs             string
+	trayExit                 string
+	trayTooltip              string
+	notifyResumeTitle        string
+	notifySuspendTitle       string
+	unknownUSBDevice         string
+	monitorOn                string
+	monitorOff               string
+	deviceStateMonitoringOff string
+	deviceStateActive        string
+	deviceStateLowPower      string
+	deviceStateUnknown       string
+	deviceStateRemoved       string
 
 	statusText map[string]string
 }
@@ -128,41 +134,47 @@ func japaneseStrings() uiStrings {
 		searchCue:             "デバイス名、VID/PID、Instance ID、メッセージを検索",
 		typeOptions:           []string{"すべて", "Suspend疑い", "Resume", "PnP", "エラー"},
 		confidenceOptions:     []string{"すべて", "High+Medium", "High only"},
-		deviceColumnTitles:    []string{"監視・名前", "VID/PID", "電源", "列挙子", "場所", "最終確認"},
+		deviceColumnTitles:    []string{"監視・名前", "状態", "VID/PID", "電源", "列挙子", "場所", "最終確認"},
 		eventColumnTitles:     []string{"重要", "時刻", "イベント", "信頼度", "ソース", "デバイス", "メッセージ"},
 		emptyDetails:          "デバイスまたはイベントを選択してください。",
 
-		deviceDetailsTitle:  "デバイス",
-		deviceMonitoring:    "監視",
-		deviceName:          "名前",
-		devicePowerState:    "電源状態",
-		deviceManufacturer:  "製造元",
-		deviceLocation:      "場所",
-		deviceLastSeen:      "最終確認",
-		eventDetailsTitle:   "イベント",
-		eventMark:           "重要表示",
-		eventTime:           "時刻",
-		eventType:           "種別",
-		eventConfidence:     "信頼度",
-		eventMessage:        "メッセージ",
-		rawETWProperties:    "Raw ETWプロパティ",
-		markSuspend:         "! Suspend",
-		markResume:          "Resume",
-		markError:           "エラー",
-		markPnPArrival:      "PnP +",
-		markPnPRemoval:      "PnP -",
-		exportDialogTitle:   "表示ログをJSONLで出力",
-		exportFailedTitle:   "出力失敗",
-		exportCompleteTitle: "出力完了",
-		trayShow:            "表示",
-		trayOpenLogs:        "ログフォルダ",
-		trayExit:            "終了",
-		trayTooltip:         "USB Suspend Watch - 監視中",
-		notifyResumeTitle:   "USB Resume",
-		notifySuspendTitle:  "USB Suspend疑い",
-		unknownUSBDevice:    "USBデバイス",
-		monitorOn:           "ON",
-		monitorOff:          "OFF",
+		deviceDetailsTitle:       "デバイス",
+		deviceMonitoring:         "監視",
+		deviceState:              "状態",
+		deviceName:               "名前",
+		devicePowerState:         "電源状態",
+		deviceManufacturer:       "製造元",
+		deviceLocation:           "場所",
+		deviceLastSeen:           "最終確認",
+		eventDetailsTitle:        "イベント",
+		eventMark:                "重要表示",
+		eventTime:                "時刻",
+		eventType:                "種別",
+		eventConfidence:          "信頼度",
+		eventMessage:             "メッセージ",
+		rawETWProperties:         "Raw ETWプロパティ",
+		markSuspend:              "! Suspend",
+		markResume:               "Resume",
+		markError:                "エラー",
+		markPnPArrival:           "PnP +",
+		markPnPRemoval:           "PnP -",
+		exportDialogTitle:        "表示ログをJSONLで出力",
+		exportFailedTitle:        "出力失敗",
+		exportCompleteTitle:      "出力完了",
+		trayShow:                 "表示",
+		trayOpenLogs:             "ログフォルダ",
+		trayExit:                 "終了",
+		trayTooltip:              "USB Suspend Watch - 監視中",
+		notifyResumeTitle:        "USB Resume",
+		notifySuspendTitle:       "USB Suspend疑い",
+		unknownUSBDevice:         "USBデバイス",
+		monitorOn:                "ON",
+		monitorOff:               "OFF",
+		deviceStateMonitoringOff: "監視OFF",
+		deviceStateActive:        "動作中",
+		deviceStateLowPower:      "低電力 / Suspend疑い",
+		deviceStateUnknown:       "不明",
+		deviceStateRemoved:       "未接続",
 
 		statusText: map[string]string{
 			statusSimpleMonitorRunning: "簡易監視中",
@@ -201,41 +213,47 @@ func englishStrings() uiStrings {
 		searchCue:             "Search device, VID/PID, Instance ID, message",
 		typeOptions:           []string{"All", "Suspected suspend", "Resume", "PnP", "Error"},
 		confidenceOptions:     []string{"All", "High+Medium", "High only"},
-		deviceColumnTitles:    []string{"Monitor / Name", "VID/PID", "Power", "Enumerator", "Location", "Last seen"},
+		deviceColumnTitles:    []string{"Monitor / Name", "State", "VID/PID", "Power", "Enumerator", "Location", "Last seen"},
 		eventColumnTitles:     []string{"Mark", "Time", "Event", "Confidence", "Source", "Device", "Message"},
 		emptyDetails:          "Select a device or event to inspect details.",
 
-		deviceDetailsTitle:  "Device",
-		deviceMonitoring:    "Monitoring",
-		deviceName:          "Name",
-		devicePowerState:    "Power state",
-		deviceManufacturer:  "Manufacturer",
-		deviceLocation:      "Location",
-		deviceLastSeen:      "Last seen",
-		eventDetailsTitle:   "Event",
-		eventMark:           "Mark",
-		eventTime:           "Time",
-		eventType:           "Type",
-		eventConfidence:     "Confidence",
-		eventMessage:        "Message",
-		rawETWProperties:    "Raw ETW properties",
-		markSuspend:         "! Suspend",
-		markResume:          "Resume",
-		markError:           "Error",
-		markPnPArrival:      "PnP +",
-		markPnPRemoval:      "PnP -",
-		exportDialogTitle:   "Export visible JSONL log",
-		exportFailedTitle:   "Export failed",
-		exportCompleteTitle: "Export complete",
-		trayShow:            "Show",
-		trayOpenLogs:        "Open logs",
-		trayExit:            "Exit",
-		trayTooltip:         "USB Suspend Watch - monitoring",
-		notifyResumeTitle:   "USB Resume",
-		notifySuspendTitle:  "USB Suspend suspected",
-		unknownUSBDevice:    "USB device",
-		monitorOn:           "On",
-		monitorOff:          "Off",
+		deviceDetailsTitle:       "Device",
+		deviceMonitoring:         "Monitoring",
+		deviceState:              "State",
+		deviceName:               "Name",
+		devicePowerState:         "Power state",
+		deviceManufacturer:       "Manufacturer",
+		deviceLocation:           "Location",
+		deviceLastSeen:           "Last seen",
+		eventDetailsTitle:        "Event",
+		eventMark:                "Mark",
+		eventTime:                "Time",
+		eventType:                "Type",
+		eventConfidence:          "Confidence",
+		eventMessage:             "Message",
+		rawETWProperties:         "Raw ETW properties",
+		markSuspend:              "! Suspend",
+		markResume:               "Resume",
+		markError:                "Error",
+		markPnPArrival:           "PnP +",
+		markPnPRemoval:           "PnP -",
+		exportDialogTitle:        "Export visible JSONL log",
+		exportFailedTitle:        "Export failed",
+		exportCompleteTitle:      "Export complete",
+		trayShow:                 "Show",
+		trayOpenLogs:             "Open logs",
+		trayExit:                 "Exit",
+		trayTooltip:              "USB Suspend Watch - monitoring",
+		notifyResumeTitle:        "USB Resume",
+		notifySuspendTitle:       "USB Suspend suspected",
+		unknownUSBDevice:         "USB device",
+		monitorOn:                "On",
+		monitorOff:               "Off",
+		deviceStateMonitoringOff: "Monitoring off",
+		deviceStateActive:        "Active",
+		deviceStateLowPower:      "Low power / suspected suspend",
+		deviceStateUnknown:       "Unknown",
+		deviceStateRemoved:       "Removed",
 
 		statusText: map[string]string{
 			statusSimpleMonitorRunning: "simple monitor running",

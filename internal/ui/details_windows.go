@@ -18,6 +18,7 @@ func formatDevice(d model.DeviceSnapshot, language displayLanguage, monitored bo
 	lines := []string{
 		text.deviceDetailsTitle,
 		text.deviceMonitoring + ": " + monitoring,
+		text.deviceState + ": " + deviceCurrentState(d, monitored, language),
 		text.deviceName + ": " + d.DisplayName(),
 		"Instance ID: " + d.InstanceID,
 		"Hardware ID: " + d.HardwareID,

@@ -196,11 +196,12 @@ func (a *app) createWindow() error {
 								ColumnsOrderable: true,
 								Columns: []d.TableViewColumn{
 									{Title: text.deviceColumnTitles[0], Width: 250},
-									{Title: text.deviceColumnTitles[1], Width: 110},
-									{Title: text.deviceColumnTitles[2], Width: 70},
-									{Title: text.deviceColumnTitles[3], Width: 90},
-									{Title: text.deviceColumnTitles[4], Width: 180},
-									{Title: text.deviceColumnTitles[5], Width: 130},
+									{Title: text.deviceColumnTitles[1], Width: 170},
+									{Title: text.deviceColumnTitles[2], Width: 110},
+									{Title: text.deviceColumnTitles[3], Width: 70},
+									{Title: text.deviceColumnTitles[4], Width: 90},
+									{Title: text.deviceColumnTitles[5], Width: 160},
+									{Title: text.deviceColumnTitles[6], Width: 115},
 								},
 								Model: a.devices,
 								OnSelectedIndexesChanged: func() {
@@ -574,6 +575,9 @@ func (a *app) applyLanguage() {
 	}
 	setColumnTitles(a.deviceView, text.deviceColumnTitles)
 	setColumnTitles(a.eventView, text.eventColumnTitles)
+	if a.devices != nil {
+		a.devices.SetLanguage(a.language)
+	}
 	if a.events != nil {
 		a.events.SetLanguage(a.language)
 	}

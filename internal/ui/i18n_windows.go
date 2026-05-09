@@ -108,7 +108,7 @@ func japaneseStrings() uiStrings {
 		stopETWButton:       "ETW停止",
 		openLogsButton:      "ログフォルダ",
 		exportVisibleButton: "表示ログ出力",
-		languageLabel:       "言語",
+		languageLabel:       "Language",
 		languageOptions:     []string{"日本語", "English"},
 
 		monitoringStatusTitle: "監視状態",

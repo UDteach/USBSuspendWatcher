@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.1
+
+- Kept the language selector label as `Language` even in Japanese mode so English-speaking users can find it quickly.
+
 ## v0.4.0
 
 - Added per-device monitoring checkboxes to the connected USB device list.

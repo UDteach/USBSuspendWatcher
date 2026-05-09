@@ -96,6 +96,9 @@ func TestLanguageStringsUseSingleLanguageLabels(t *testing.T) {
 	if ja.refreshButton != "更新" {
 		t.Fatalf("unexpected Japanese refresh label: %q", ja.refreshButton)
 	}
+	if ja.languageLabel != "Language" {
+		t.Fatalf("unexpected Japanese language selector label: %q", ja.languageLabel)
+	}
 	if en.refreshButton != "Refresh" {
 		t.Fatalf("unexpected English refresh label: %q", en.refreshButton)
 	}

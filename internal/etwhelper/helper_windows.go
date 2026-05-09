@@ -9,15 +9,17 @@ import (
 	"time"
 
 	"github.com/tekert/goetw/etw"
+	"golang.org/x/sys/windows"
 
 	"usb-suspend-watch/internal/logs"
 	"usb-suspend-watch/internal/model"
 )
 
 type Config struct {
-	LogDir   string
-	Session  string
-	StopFile string
+	LogDir    string
+	Session   string
+	StopFile  string
+	ParentPID int
 }
 
 func Run(cfg Config) int {
@@ -50,6 +52,19 @@ func Run(cfg Config) int {
 		Confidence: model.ConfidenceHigh,
 		Message:    "ETW helper starting",
 	})
+	parentWatch, err := openParentWatch(cfg.ParentPID)
+	if err != nil {
+		appendEvent(model.Event{
+			Time:       time.Now(),
+			Type:       model.EventInfo,
+			Source:     model.SourceApp,
+			Confidence: model.ConfidenceLow,
+			Message:    "ETW helper could not watch parent process: " + err.Error(),
+		})
+	}
+	if parentWatch != nil {
+		defer parentWatch.Close()
+	}
 
 	session := etw.NewRealTimeSession(cfg.Session)
 	for _, provider := range providers() {
@@ -92,6 +107,17 @@ func Run(cfg Config) int {
 	})
 
 	for {
+		if parentWatch != nil && parentWatch.Exited() {
+			appendEvent(model.Event{
+				Time:       time.Now(),
+				Type:       model.EventInfo,
+				Source:     model.SourceApp,
+				Confidence: model.ConfidenceHigh,
+				Message:    "ETW helper parent process exited",
+			})
+			cancel()
+			return 0
+		}
 		if cfg.StopFile != "" {
 			if _, err := os.Stat(cfg.StopFile); err == nil {
 				appendEvent(model.Event{
@@ -111,6 +137,37 @@ func Run(cfg Config) int {
 		case <-time.After(1 * time.Second):
 		}
 	}
+}
+
+type parentWatch struct {
+	handle windows.Handle
+}
+
+func openParentWatch(pid int) (*parentWatch, error) {
+	if pid <= 0 {
+		return nil, nil
+	}
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		return nil, err
+	}
+	return &parentWatch{handle: handle}, nil
+}
+
+func (w *parentWatch) Exited() bool {
+	if w == nil || w.handle == 0 {
+		return false
+	}
+	result, err := windows.WaitForSingleObject(w.handle, 0)
+	return err == nil && result == windows.WAIT_OBJECT_0
+}
+
+func (w *parentWatch) Close() {
+	if w == nil || w.handle == 0 {
+		return
+	}
+	_ = windows.CloseHandle(w.handle)
+	w.handle = 0
 }
 
 func providers() []etw.Provider {

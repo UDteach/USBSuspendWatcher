@@ -12,6 +12,8 @@ const (
 	statusETWAlreadyRequested  = "ETW helper is already requested"
 	statusETWWaiting           = "waiting for ETW helper events"
 	statusETWReceived          = "ETW helper events received"
+	statusETWStopped           = "ETW helper stopped"
+	statusETWFailed            = "ETW helper failed"
 )
 
 type uiStrings struct {
@@ -184,6 +186,8 @@ func japaneseStrings() uiStrings {
 			statusETWAlreadyRequested:  "ETWヘルパーは要求済み",
 			statusETWWaiting:           "ETWヘルパーイベント待機中",
 			statusETWReceived:          "ETWヘルパーイベント受信",
+			statusETWStopped:           "ETWヘルパー停止",
+			statusETWFailed:            "ETWヘルパー失敗",
 		},
 	}
 }
@@ -264,6 +268,8 @@ func englishStrings() uiStrings {
 			statusETWAlreadyRequested:  "ETW helper is already requested",
 			statusETWWaiting:           "waiting for ETW helper events",
 			statusETWReceived:          "ETW helper events received",
+			statusETWStopped:           "ETW helper stopped",
+			statusETWFailed:            "ETW helper failed",
 		},
 	}
 }

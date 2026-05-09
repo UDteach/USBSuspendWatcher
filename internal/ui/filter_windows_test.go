@@ -117,6 +117,48 @@ func TestEventMark(t *testing.T) {
 	}
 }
 
+func TestTerminalETWHelperEvents(t *testing.T) {
+	cases := []struct {
+		name  string
+		event model.Event
+		want  bool
+	}{
+		{
+			name:  "helper startup error",
+			event: model.Event{Type: model.EventError, Source: model.SourceApp, Message: "start ETW session: access denied"},
+			want:  true,
+		},
+		{
+			name:  "parent exited",
+			event: model.Event{Type: model.EventInfo, Source: model.SourceApp, Message: "ETW helper parent process exited"},
+			want:  true,
+		},
+		{
+			name:  "stop file",
+			event: model.Event{Type: model.EventInfo, Source: model.SourceApp, Message: "ETW helper stop file detected"},
+			want:  true,
+		},
+		{
+			name:  "running",
+			event: model.Event{Type: model.EventInfo, Source: model.SourceApp, Message: "ETW helper running"},
+			want:  false,
+		},
+		{
+			name:  "device error",
+			event: model.Event{Type: model.EventError, Source: model.SourceSetupAPIPoll, Message: "SetupAPI failed"},
+			want:  false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isTerminalETWHelperEvent(tc.event); got != tc.want {
+				t.Fatalf("isTerminalETWHelperEvent() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestLanguageStringsUseSingleLanguageLabels(t *testing.T) {
 	ja := stringsFor(languageJapanese)
 	en := stringsFor(languageEnglish)

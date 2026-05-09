@@ -1,6 +1,9 @@
 package etwhelper
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestUSBProvidersUsePlainPowerEnableParameters(t *testing.T) {
 	t.Setenv("USB_SUSPEND_WATCH_ETW_RUNDOWN", "")
@@ -31,5 +34,16 @@ func TestUSBProviderKeywordsCanIncludeRundown(t *testing.T) {
 	t.Setenv("USB_SUSPEND_WATCH_ETW_RUNDOWN", "1")
 	if got := usbProviderKeywords(); got != 0x8008 {
 		t.Fatalf("usbProviderKeywords() = %#x, want Power|Rundown", got)
+	}
+}
+
+func TestParentWatchCanObserveCurrentProcess(t *testing.T) {
+	watch, err := openParentWatch(os.Getpid())
+	if err != nil {
+		t.Fatalf("openParentWatch returned error: %v", err)
+	}
+	defer watch.Close()
+	if watch.Exited() {
+		t.Fatalf("current process should not be reported as exited")
 	}
 }

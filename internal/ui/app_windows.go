@@ -705,6 +705,7 @@ func (a *app) startETW() {
 		"--log-dir", a.logDir,
 		"--session", "UsbSuspendWatch-ETW",
 		"--stop-file", stopFile,
+		"--parent-pid", fmt.Sprint(os.Getpid()),
 	}
 	elevated := !platform.IsAdmin()
 	err := platform.StartProcess(args, elevated)
@@ -772,16 +773,62 @@ func (a *app) tailETWLog(ctx context.Context, path string, offset int64) {
 			if len(events) == 0 {
 				continue
 			}
+			terminal := false
+			terminalError := false
 			a.mw.Synchronize(func() {
 				for _, event := range events {
+					if isTerminalETWHelperEvent(event) {
+						terminal = true
+						if event.Type == model.EventError {
+							terminalError = true
+						}
+					}
 					if !a.acceptTailedETWEvent(event) {
 						continue
 					}
 					a.addEvent(event, false)
 				}
+				if terminal {
+					a.clearETWRunning()
+					if terminalError {
+						a.updateStatus(statusETWFailed)
+						return
+					}
+					a.updateStatus(statusETWStopped)
+					return
+				}
 				a.updateStatus(statusETWReceived)
 			})
+			if terminal {
+				return
+			}
 		}
+	}
+}
+
+func (a *app) clearETWRunning() {
+	a.mu.Lock()
+	a.etwRunning = false
+	a.etwStopFile = ""
+	a.tailCancel = nil
+	a.mu.Unlock()
+}
+
+func isTerminalETWHelperEvent(event model.Event) bool {
+	if event.Source != model.SourceApp {
+		return false
+	}
+	if event.Type == model.EventError {
+		return true
+	}
+	if event.Type != model.EventInfo {
+		return false
+	}
+	switch event.Message {
+	case "ETW helper stop file detected", "ETW helper parent process exited":
+		return true
+	default:
+		return false
 	}
 }
 

@@ -24,15 +24,20 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Test
+      - name: Quality checks
         shell: pwsh
-        run: go test ./...
+        run: |
+          go test ./...
+          go vet ./...
+          go mod verify
+          go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+          go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
 
       - name: Build package
         shell: pwsh
         run: ./build.ps1 -Version "${{ github.ref_name }}"
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: usb-suspend-watch-x64
           path: |

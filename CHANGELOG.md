@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.7.1
+
+- Added parent-process monitoring to the elevated ETW helper so an orphaned helper shuts down if the GUI exits unexpectedly.
+- Reset the GUI ETW state when helper startup fails, making retry possible without restarting the app.
+- Increased JSONL tailing tolerance for large ETW payloads.
+- Hardened the release workflow with vet, module verification, staticcheck, govulncheck, and Node 24-compatible artifact upload.
+
 ## v0.7.0
 
 - Made the `Start ETW experimental` button start the elevated ETW helper directly without requiring `USB_SUSPEND_WATCH_EXPERIMENTAL_ETW=1`.

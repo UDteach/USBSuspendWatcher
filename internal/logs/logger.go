@@ -132,6 +132,7 @@ func ReadEventsSince(path string, offset int64) ([]model.Event, int64, error) {
 	}
 	var events []model.Event
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
 		var event model.Event
 		if err := json.Unmarshal(scanner.Bytes(), &event); err == nil {

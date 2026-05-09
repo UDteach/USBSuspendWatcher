@@ -46,9 +46,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release create "${{ github.ref_name }}" `
-            "dist/usb-suspend-watch-x64.zip" `
-            "dist/usb-suspend-watch.exe" `
-            "dist/SHA256SUMS.txt" `
-            --title "${{ github.ref_name }}" `
-            --generate-notes
+          $tag = "${{ github.ref_name }}"
+          $assets = @(
+            "dist/usb-suspend-watch-x64.zip"
+            "dist/usb-suspend-watch.exe"
+            "dist/SHA256SUMS.txt"
+          )
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag @assets --clobber
+          } else {
+            gh release create $tag @assets --title $tag --generate-notes
+          }

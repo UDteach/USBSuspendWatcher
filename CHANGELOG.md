@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.0
+
+- Made the `Start ETW experimental` button start the elevated ETW helper directly without requiring `USB_SUSPEND_WATCH_EXPERIMENTAL_ETW=1`.
+- Kept ETW labeled experimental and UAC-gated, but removed the hidden release UI gate that made the button look inert.
+- Updated documentation for the new ETW start flow.
+
 ## v0.6.0
 
 - Fixed elevated ETW helper startup for USB providers on Windows by using plain provider enable parameters.

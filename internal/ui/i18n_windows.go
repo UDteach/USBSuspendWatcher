@@ -9,7 +9,6 @@ const (
 
 const (
 	statusSimpleMonitorRunning = "simple monitor running"
-	statusETWDisabled          = "ETW helper disabled in release UI"
 	statusETWAlreadyRequested  = "ETW helper is already requested"
 	statusETWWaiting           = "waiting for ETW helper events"
 	statusETWReceived          = "ETW helper events received"
@@ -182,7 +181,6 @@ func japaneseStrings() uiStrings {
 
 		statusText: map[string]string{
 			statusSimpleMonitorRunning: "簡易監視中",
-			statusETWDisabled:          "ETWヘルパーはリリースUIで無効",
 			statusETWAlreadyRequested:  "ETWヘルパーは要求済み",
 			statusETWWaiting:           "ETWヘルパーイベント待機中",
 			statusETWReceived:          "ETWヘルパーイベント受信",
@@ -263,7 +261,6 @@ func englishStrings() uiStrings {
 
 		statusText: map[string]string{
 			statusSimpleMonitorRunning: "simple monitor running",
-			statusETWDisabled:          "ETW helper disabled in release UI",
 			statusETWAlreadyRequested:  "ETW helper is already requested",
 			statusETWWaiting:           "waiting for ETW helper events",
 			statusETWReceived:          "ETW helper events received",

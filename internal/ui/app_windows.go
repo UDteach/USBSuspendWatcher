@@ -687,18 +687,6 @@ func (a *app) handleDeviceChange(wParam uintptr) {
 }
 
 func (a *app) startETW() {
-	if os.Getenv("USB_SUSPEND_WATCH_EXPERIMENTAL_ETW") != "1" {
-		a.addEvent(model.Event{
-			Time:       time.Now(),
-			Type:       model.EventInfo,
-			Source:     model.SourceApp,
-			Confidence: model.ConfidenceHigh,
-			Message:    "ETW helper is disabled in the release UI; set USB_SUSPEND_WATCH_EXPERIMENTAL_ETW=1 only for lab testing",
-		}, true)
-		a.updateStatus(statusETWDisabled)
-		return
-	}
-
 	a.mu.Lock()
 	if a.etwRunning {
 		a.mu.Unlock()

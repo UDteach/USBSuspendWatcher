@@ -2,7 +2,7 @@
 
 USB Suspend Watch is an installer-free Windows desktop utility for watching connected USB devices and recording suspected USB Selective Suspend transitions.
 
-The v0.2.0 release uses one production-ready monitoring layer and one lab-only experimental layer:
+The v0.3.0 release uses one production-ready monitoring layer and one lab-only experimental layer:
 
 - Simple mode: runs without elevation, watches `WM_DEVICECHANGE`, polls SetupAPI, and reads `SPDRP_DEVICE_POWER_DATA`.
 - Experimental ETW mode: source code is included, but the release UI does not start it unless `USB_SUSPEND_WATCH_EXPERIMENTAL_ETW=1` is set.
@@ -11,7 +11,7 @@ No driver, service, installer, USBPcap dependency, or telemetry is used.
 
 ## Features
 
-- Bilingual Japanese/English desktop GUI.
+- Desktop GUI with a Japanese/English language dropdown.
 - Shows a monitoring status summary with connected USB count, low-power device count, suspected suspend count, resume count, privilege, and log path.
 - Lists currently connected USB devices.
 - Records PnP arrival and removal events.
@@ -46,7 +46,7 @@ This is an inference from Windows device power data, not a kernel trace.
 
 ### Experimental ETW Mode
 
-The ETW helper is not considered production-ready in v0.2.0. It is disabled in the release UI by default because provider-enable behavior differs by Windows build, permissions, and USB stack provider.
+The ETW helper is not considered production-ready in v0.3.0. It is disabled in the release UI by default because provider-enable behavior differs by Windows build, permissions, and USB stack provider.
 
 For lab testing only, set this environment variable before starting the app:
 
@@ -109,7 +109,7 @@ go test ./...
 go vet ./...
 go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-.\build.ps1 -Version v0.2.0
+.\build.ps1 -Version v0.3.0
 ```
 
 `go test -race` requires CGO and a C compiler on Windows. The release package is built with `CGO_ENABLED=0`.

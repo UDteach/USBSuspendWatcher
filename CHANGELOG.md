@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.0
+
+- Added a Japanese/English language dropdown in the main toolbar.
+- Replaced always-bilingual GUI labels with single-language labels that update across buttons, filters, table headers, details, dialogs, and tray menu items.
+- Kept event filters and current selection stable when switching languages.
+- Added localization tests for event markers and core UI labels.
+
 ## v0.2.0
 
 - Embedded a Common Controls v6 manifest so the Walk GUI starts as a standalone `.exe`.

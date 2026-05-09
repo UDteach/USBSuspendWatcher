@@ -95,18 +95,19 @@ func eventSearchText(event model.Event) string {
 	return strings.Join(parts, " ")
 }
 
-func eventMark(event model.Event) string {
+func eventMark(event model.Event, language displayLanguage) string {
+	text := stringsFor(language)
 	switch event.Type {
 	case model.EventSuspectSuspend, model.EventPowerD0Exit, model.EventIdleNotification:
-		return "! Suspend"
+		return text.markSuspend
 	case model.EventResume, model.EventPowerD0Entry:
-		return "Resume"
+		return text.markResume
 	case model.EventError:
-		return "Error"
+		return text.markError
 	case model.EventPnPArrival:
-		return "PnP +"
+		return text.markPnPArrival
 	case model.EventPnPRemoval:
-		return "PnP -"
+		return text.markPnPRemoval
 	default:
 		return ""
 	}

@@ -30,9 +30,21 @@ type app struct {
 	cfg Config
 
 	mw               *walk.MainWindow
+	refreshButton    *walk.PushButton
+	startETWButton   *walk.PushButton
+	stopETWButton    *walk.PushButton
+	openLogsButton   *walk.PushButton
+	exportButton     *walk.PushButton
+	languageLabel    *walk.Label
+	languageCombo    *walk.ComboBox
+	statusGroup      *walk.GroupBox
 	deviceView       *walk.TableView
 	eventView        *walk.TableView
 	details          *walk.TextEdit
+	devicesLabel     *walk.Label
+	timelineLabel    *walk.Label
+	typeLabel        *walk.Label
+	confidenceLabel  *walk.Label
 	statusLabel      *walk.Label
 	summaryLabel     *walk.Label
 	privilegeLabel   *walk.Label
@@ -41,6 +53,9 @@ type app struct {
 	confidenceFilter *walk.ComboBox
 	eventSearch      *walk.LineEdit
 	notifyIcon       *walk.NotifyIcon
+	showAction       *walk.Action
+	logAction        *walk.Action
+	exitAction       *walk.Action
 	icon             *walk.Icon
 
 	devices *deviceTableModel
@@ -61,6 +76,9 @@ type app struct {
 	mu          sync.Mutex
 
 	selectionChanging bool
+	localizing        bool
+	language          displayLanguage
+	statusText        string
 }
 
 func Run(cfg Config) error {
@@ -76,14 +94,15 @@ func Run(cfg Config) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &app{
-		cfg:     cfg,
-		devices: newDeviceTableModel(),
-		events:  newEventTableModel(2000),
-		poller:  monitor.NewPoller(2 * time.Second),
-		logger:  logger,
-		logDir:  logDir,
-		ctx:     ctx,
-		cancel:  cancel,
+		cfg:      cfg,
+		devices:  newDeviceTableModel(),
+		events:   newEventTableModel(2000),
+		poller:   monitor.NewPoller(2 * time.Second),
+		logger:   logger,
+		logDir:   logDir,
+		ctx:      ctx,
+		cancel:   cancel,
+		language: languageJapanese,
 	}
 
 	if err := a.createWindow(); err != nil {
@@ -108,7 +127,7 @@ func Run(cfg Config) error {
 		Message:    "USB Suspend Watch started",
 	}, true)
 
-	a.updateStatus("simple monitor running")
+	a.updateStatus(statusSimpleMonitorRunning)
 	a.mw.Run()
 	return nil
 }
@@ -119,6 +138,7 @@ func (a *app) createWindow() error {
 	if err != nil {
 		return err
 	}
+	text := a.text()
 
 	err = d.MainWindow{
 		AssignTo: &a.mw,
@@ -136,21 +156,30 @@ func (a *app) createWindow() error {
 			d.Composite{
 				Layout: d.HBox{MarginsZero: true},
 				Children: []d.Widget{
-					d.PushButton{Text: "更新 / Refresh", OnClicked: a.refreshDevices},
-					d.PushButton{Text: "ETW開始 実験 / Start ETW experimental", OnClicked: a.startETW},
-					d.PushButton{Text: "ETW停止 / Stop ETW", OnClicked: a.stopETW},
-					d.PushButton{Text: "ログフォルダ / Open logs", OnClicked: a.openLogFolder},
-					d.PushButton{Text: "表示ログ出力 / Export visible", OnClicked: a.exportVisibleLog},
+					d.PushButton{AssignTo: &a.refreshButton, Text: text.refreshButton, OnClicked: a.refreshDevices},
+					d.PushButton{AssignTo: &a.startETWButton, Text: text.startETWButton, OnClicked: a.startETW},
+					d.PushButton{AssignTo: &a.stopETWButton, Text: text.stopETWButton, OnClicked: a.stopETW},
+					d.PushButton{AssignTo: &a.openLogsButton, Text: text.openLogsButton, OnClicked: a.openLogFolder},
+					d.PushButton{AssignTo: &a.exportButton, Text: text.exportVisibleButton, OnClicked: a.exportVisibleLog},
+					d.Label{AssignTo: &a.languageLabel, Text: text.languageLabel},
+					d.ComboBox{
+						AssignTo:              &a.languageCombo,
+						Model:                 text.languageOptions,
+						CurrentIndex:          a.language.index(),
+						MinSize:               d.Size{Width: 120},
+						OnCurrentIndexChanged: a.onLanguageChanged,
+					},
 				},
 			},
 			d.GroupBox{
-				Title:  "監視状態 / Monitoring status",
-				Layout: d.Grid{Columns: 3, Margins: d.Margins{Left: 8, Top: 6, Right: 8, Bottom: 6}, Spacing: 6},
+				AssignTo: &a.statusGroup,
+				Title:    text.monitoringStatusTitle,
+				Layout:   d.Grid{Columns: 3, Margins: d.Margins{Left: 8, Top: 6, Right: 8, Bottom: 6}, Spacing: 6},
 				Children: []d.Widget{
-					d.Label{AssignTo: &a.statusLabel, Text: "監視 / Monitoring: starting", ColumnSpan: 2, EllipsisMode: d.EllipsisEnd},
-					d.Label{AssignTo: &a.privilegeLabel, Text: "権限 / Privilege: checking", EllipsisMode: d.EllipsisEnd},
-					d.Label{AssignTo: &a.summaryLabel, Text: "USB: 0 | Low power: 0 | Suspected suspend: 0 | Resume: 0", ColumnSpan: 2, EllipsisMode: d.EllipsisEnd},
-					d.Label{AssignTo: &a.logPathLabel, Text: "ログ / Log: " + a.logDir, EllipsisMode: d.EllipsisPath},
+					d.Label{AssignTo: &a.statusLabel, Text: text.monitoringPrefix + ": starting", ColumnSpan: 2, EllipsisMode: d.EllipsisEnd},
+					d.Label{AssignTo: &a.privilegeLabel, Text: text.privilegePrefix + ": " + text.privilegeChecking, EllipsisMode: d.EllipsisEnd},
+					d.Label{AssignTo: &a.summaryLabel, Text: fmt.Sprintf(text.summaryFormat, 0, 0, 0, 0, 0), ColumnSpan: 2, EllipsisMode: d.EllipsisEnd},
+					d.Label{AssignTo: &a.logPathLabel, Text: text.logPrefix + ": " + a.logDir, EllipsisMode: d.EllipsisPath},
 				},
 			},
 			d.HSplitter{
@@ -158,18 +187,18 @@ func (a *app) createWindow() error {
 					d.Composite{
 						Layout: d.VBox{MarginsZero: true},
 						Children: []d.Widget{
-							d.Label{Text: "接続中USB / Connected USB devices"},
+							d.Label{AssignTo: &a.devicesLabel, Text: text.connectedDevicesTitle},
 							d.TableView{
 								AssignTo:         &a.deviceView,
 								AlternatingRowBG: true,
 								ColumnsOrderable: true,
 								Columns: []d.TableViewColumn{
-									{Title: "Name", Width: 250},
-									{Title: "VID/PID", Width: 110},
-									{Title: "Power", Width: 70},
-									{Title: "Enumerator", Width: 90},
-									{Title: "Location", Width: 180},
-									{Title: "Last seen", Width: 130},
+									{Title: text.deviceColumnTitles[0], Width: 250},
+									{Title: text.deviceColumnTitles[1], Width: 110},
+									{Title: text.deviceColumnTitles[2], Width: 70},
+									{Title: text.deviceColumnTitles[3], Width: 90},
+									{Title: text.deviceColumnTitles[4], Width: 180},
+									{Title: text.deviceColumnTitles[5], Width: 130},
 								},
 								Model: a.devices,
 								OnSelectedIndexesChanged: func() {
@@ -183,25 +212,25 @@ func (a *app) createWindow() error {
 							d.Composite{
 								Layout: d.VBox{MarginsZero: true},
 								Children: []d.Widget{
-									d.Label{Text: "Suspend / Resume タイムライン / Timeline"},
+									d.Label{AssignTo: &a.timelineLabel, Text: text.timelineTitle},
 									d.Composite{
 										Layout: d.VBox{MarginsZero: true, Spacing: 3},
 										Children: []d.Widget{
 											d.Composite{
 												Layout: d.HBox{MarginsZero: true},
 												Children: []d.Widget{
-													d.Label{Text: "種別 / Type"},
+													d.Label{AssignTo: &a.typeLabel, Text: text.typeLabel},
 													d.ComboBox{
 														AssignTo:              &a.eventTypeFilter,
-														Model:                 []string{"すべて / All", "Suspend疑い / Suspected", "Resume", "PnP", "Error"},
+														Model:                 text.typeOptions,
 														CurrentIndex:          0,
 														StretchFactor:         1,
 														OnCurrentIndexChanged: a.applyEventFilters,
 													},
-													d.Label{Text: "信頼度 / Confidence"},
+													d.Label{AssignTo: &a.confidenceLabel, Text: text.confidenceLabel},
 													d.ComboBox{
 														AssignTo:              &a.confidenceFilter,
-														Model:                 []string{"すべて / All", "High+Medium", "High only"},
+														Model:                 text.confidenceOptions,
 														CurrentIndex:          0,
 														StretchFactor:         1,
 														OnCurrentIndexChanged: a.applyEventFilters,
@@ -210,7 +239,7 @@ func (a *app) createWindow() error {
 											},
 											d.LineEdit{
 												AssignTo:      &a.eventSearch,
-												CueBanner:     "検索 / Search device, VID/PID, Instance ID, message",
+												CueBanner:     text.searchCue,
 												StretchFactor: 1,
 												OnTextChanged: a.applyEventFilters,
 											},
@@ -221,13 +250,13 @@ func (a *app) createWindow() error {
 										AlternatingRowBG: true,
 										ColumnsOrderable: true,
 										Columns: []d.TableViewColumn{
-											{Title: "Mark", Width: 95},
-											{Title: "Time", Width: 150},
-											{Title: "Event", Width: 125},
-											{Title: "Confidence", Width: 90},
-											{Title: "Source", Width: 120},
-											{Title: "Device", Width: 240},
-											{Title: "Message", Width: 340},
+											{Title: text.eventColumnTitles[0], Width: 95},
+											{Title: text.eventColumnTitles[1], Width: 150},
+											{Title: text.eventColumnTitles[2], Width: 125},
+											{Title: text.eventColumnTitles[3], Width: 90},
+											{Title: text.eventColumnTitles[4], Width: 120},
+											{Title: text.eventColumnTitles[5], Width: 240},
+											{Title: text.eventColumnTitles[6], Width: 340},
 										},
 										Model: a.events,
 										OnSelectedIndexesChanged: func() {
@@ -241,7 +270,7 @@ func (a *app) createWindow() error {
 								ReadOnly: true,
 								VScroll:  true,
 								HScroll:  true,
-								Text:     "デバイスまたはイベントを選択してください。\r\nSelect a device or event to inspect details.",
+								Text:     text.emptyDetails,
 							},
 						},
 					},
@@ -255,10 +284,12 @@ func (a *app) createWindow() error {
 
 	a.setupNotifyIcon()
 	a.installWndProc()
+	a.applyLanguage()
 	return nil
 }
 
 func (a *app) setupNotifyIcon() {
+	text := a.text()
 	ni, err := walk.NewNotifyIcon(a.mw)
 	if err != nil {
 		return
@@ -272,13 +303,16 @@ func (a *app) setupNotifyIcon() {
 		}
 	})
 	showAction := walk.NewAction()
-	_ = showAction.SetText("表示 / Show")
+	a.showAction = showAction
+	_ = showAction.SetText(text.trayShow)
 	showAction.Triggered().Attach(a.showFromTray)
 	logAction := walk.NewAction()
-	_ = logAction.SetText("ログフォルダ / Open logs")
+	a.logAction = logAction
+	_ = logAction.SetText(text.trayOpenLogs)
 	logAction.Triggered().Attach(a.openLogFolder)
 	exitAction := walk.NewAction()
-	_ = exitAction.SetText("終了 / Exit")
+	a.exitAction = exitAction
+	_ = exitAction.SetText(text.trayExit)
 	exitAction.Triggered().Attach(func() { walk.App().Exit(0) })
 	_ = ni.ContextMenu().Actions().Add(showAction)
 	_ = ni.ContextMenu().Actions().Add(logAction)
@@ -329,7 +363,7 @@ func (a *app) refreshDevices() {
 	})
 	a.devices.Set(devices)
 	a.updateDetails()
-	a.updateStatus("simple monitor running")
+	a.updateStatus(statusSimpleMonitorRunning)
 }
 
 func (a *app) addEvent(event model.Event, persist bool) {
@@ -377,17 +411,17 @@ func (a *app) updateDetails() {
 	}
 	if idx := selectedIndex(a.eventView); idx >= 0 {
 		if event, ok := a.events.Item(idx); ok {
-			a.details.SetText(formatEvent(event))
+			a.details.SetText(formatEvent(event, a.language))
 			return
 		}
 	}
 	if idx := selectedIndex(a.deviceView); idx >= 0 {
 		if device, ok := a.devices.Item(idx); ok {
-			a.details.SetText(formatDevice(device))
+			a.details.SetText(formatDevice(device, a.language))
 			return
 		}
 	}
-	a.details.SetText("デバイスまたはイベントを選択してください。\r\nSelect a device or event to inspect details.")
+	a.details.SetText(a.text().emptyDetails)
 }
 
 func selectedIndex(tv *walk.TableView) int {
@@ -402,19 +436,22 @@ func selectedIndex(tv *walk.TableView) int {
 }
 
 func (a *app) updateStatus(text string) {
+	a.statusText = text
 	if a.statusLabel == nil {
 		return
 	}
-	admin := "standard user"
+	strings := a.text()
+	admin := strings.standardUser
 	if platform.IsAdmin() {
-		admin = "administrator"
+		admin = strings.administrator
 	}
+	status := localizeStatus(text, a.language)
 	if a.etwRunning {
-		text = "precise ETW requested; " + text
+		status = strings.preciseETWRequested + "; " + status
 	}
-	a.statusLabel.SetText(fmt.Sprintf("監視 / Monitoring: %s | v%s", text, versionOrDev(a.cfg.Version)))
+	a.statusLabel.SetText(fmt.Sprintf("%s: %s | %s", strings.monitoringPrefix, status, versionOrDev(a.cfg.Version)))
 	if a.privilegeLabel != nil {
-		a.privilegeLabel.SetText("権限 / Privilege: " + admin)
+		a.privilegeLabel.SetText(strings.privilegePrefix + ": " + admin)
 	}
 	a.updateSummary()
 }
@@ -431,8 +468,9 @@ func (a *app) updateSummary() {
 			lowPower++
 		}
 	}
+	strings := a.text()
 	a.summaryLabel.SetText(fmt.Sprintf(
-		"USB: %d | 低電力 / Low power: %d | Suspend疑い / Suspected: %d | Resume: %d | 表示 / Visible: %d",
+		strings.summaryFormat,
 		len(devices),
 		lowPower,
 		stats.SuspectedSuspend,
@@ -440,7 +478,7 @@ func (a *app) updateSummary() {
 		a.events.RowCount(),
 	))
 	if a.logPathLabel != nil && a.logger != nil {
-		a.logPathLabel.SetText("ログ / Log: " + a.logger.Path())
+		a.logPathLabel.SetText(strings.logPrefix + ": " + a.logger.Path())
 	}
 }
 
@@ -465,6 +503,118 @@ func (a *app) currentEventFilter() eventFilter {
 		filter.Query = a.eventSearch.Text()
 	}
 	return filter
+}
+
+func (a *app) text() uiStrings {
+	return stringsFor(a.language)
+}
+
+func (a *app) onLanguageChanged() {
+	if a.localizing || a.languageCombo == nil {
+		return
+	}
+	next := languageFromIndex(a.languageCombo.CurrentIndex())
+	if next == a.language {
+		return
+	}
+	a.language = next
+	a.applyLanguage()
+}
+
+func (a *app) applyLanguage() {
+	text := a.text()
+	a.localizing = true
+	defer func() { a.localizing = false }()
+
+	setButtonText(a.refreshButton, text.refreshButton)
+	setButtonText(a.startETWButton, text.startETWButton)
+	setButtonText(a.stopETWButton, text.stopETWButton)
+	setButtonText(a.openLogsButton, text.openLogsButton)
+	setButtonText(a.exportButton, text.exportVisibleButton)
+	setLabelText(a.languageLabel, text.languageLabel)
+	setLabelText(a.devicesLabel, text.connectedDevicesTitle)
+	setLabelText(a.timelineLabel, text.timelineTitle)
+	setLabelText(a.typeLabel, text.typeLabel)
+	setLabelText(a.confidenceLabel, text.confidenceLabel)
+	if a.statusGroup != nil {
+		_ = a.statusGroup.SetTitle(text.monitoringStatusTitle)
+	}
+	setComboModel(a.languageCombo, text.languageOptions, a.language.index())
+	setComboModel(a.eventTypeFilter, text.typeOptions, selectedComboIndex(a.eventTypeFilter))
+	setComboModel(a.confidenceFilter, text.confidenceOptions, selectedComboIndex(a.confidenceFilter))
+	if a.eventSearch != nil {
+		_ = a.eventSearch.SetCueBanner(text.searchCue)
+	}
+	setColumnTitles(a.deviceView, text.deviceColumnTitles)
+	setColumnTitles(a.eventView, text.eventColumnTitles)
+	if a.events != nil {
+		a.events.SetLanguage(a.language)
+	}
+	if a.showAction != nil {
+		_ = a.showAction.SetText(text.trayShow)
+	}
+	if a.logAction != nil {
+		_ = a.logAction.SetText(text.trayOpenLogs)
+	}
+	if a.exitAction != nil {
+		_ = a.exitAction.SetText(text.trayExit)
+	}
+	if a.notifyIcon != nil {
+		_ = a.notifyIcon.SetToolTip(text.trayTooltip)
+	}
+	status := a.statusText
+	if status == "" {
+		status = statusSimpleMonitorRunning
+	}
+	a.updateStatus(status)
+	a.updateDetails()
+}
+
+func setButtonText(button *walk.PushButton, text string) {
+	if button != nil {
+		_ = button.SetText(text)
+	}
+}
+
+func setLabelText(label *walk.Label, text string) {
+	if label != nil {
+		_ = label.SetText(text)
+	}
+}
+
+func selectedComboIndex(combo *walk.ComboBox) int {
+	if combo == nil {
+		return 0
+	}
+	index := combo.CurrentIndex()
+	if index < 0 {
+		return 0
+	}
+	return index
+}
+
+func setComboModel(combo *walk.ComboBox, model []string, index int) {
+	if combo == nil {
+		return
+	}
+	_ = combo.SetModel(model)
+	if index < 0 || index >= len(model) {
+		index = 0
+	}
+	_ = combo.SetCurrentIndex(index)
+}
+
+func setColumnTitles(view *walk.TableView, titles []string) {
+	if view == nil {
+		return
+	}
+	columns := view.Columns()
+	for i, title := range titles {
+		if i >= columns.Len() {
+			return
+		}
+		_ = columns.At(i).SetTitle(title)
+	}
 }
 
 func (a *app) handleDeviceChange(wParam uintptr) {
@@ -499,14 +649,14 @@ func (a *app) startETW() {
 			Confidence: model.ConfidenceHigh,
 			Message:    "ETW helper is disabled in the release UI; set USB_SUSPEND_WATCH_EXPERIMENTAL_ETW=1 only for lab testing",
 		}, true)
-		a.updateStatus("ETW helper disabled in release UI")
+		a.updateStatus(statusETWDisabled)
 		return
 	}
 
 	a.mu.Lock()
 	if a.etwRunning {
 		a.mu.Unlock()
-		a.updateStatus("ETW helper is already requested")
+		a.updateStatus(statusETWAlreadyRequested)
 		return
 	}
 	stopFile := filepath.Join(a.logDir, "usb-suspend-watch-etw.stop")
@@ -549,7 +699,7 @@ func (a *app) startETW() {
 		Confidence: model.ConfidenceHigh,
 		Message:    "ETW helper start requested; UAC may appear if administrative rights are needed",
 	}, true)
-	a.updateStatus("waiting for ETW helper events")
+	a.updateStatus(statusETWWaiting)
 }
 
 func (a *app) stopETW() {
@@ -568,7 +718,7 @@ func (a *app) stopETW() {
 		_ = os.WriteFile(stopFile, []byte(time.Now().Format(time.RFC3339)), 0644)
 	}
 	if a.statusLabel != nil {
-		a.updateStatus("simple monitor running")
+		a.updateStatus(statusSimpleMonitorRunning)
 	}
 }
 
@@ -592,7 +742,7 @@ func (a *app) tailETWLog(ctx context.Context, path string, offset int64) {
 				for _, event := range events {
 					a.addEvent(event, false)
 				}
-				a.updateStatus("ETW helper events received")
+				a.updateStatus(statusETWReceived)
 			})
 		}
 	}
@@ -603,8 +753,9 @@ func (a *app) openLogFolder() {
 }
 
 func (a *app) exportVisibleLog() {
+	text := a.text()
 	dlg := new(walk.FileDialog)
-	dlg.Title = "表示ログ出力 / Export visible JSONL log"
+	dlg.Title = text.exportDialogTitle
 	dlg.FilePath = filepath.Join(a.logDir, "usb-suspend-watch-export.jsonl")
 	dlg.Filter = "JSON Lines (*.jsonl)|*.jsonl|All files (*.*)|*.*"
 	ok, err := dlg.ShowSave(a.mw)
@@ -612,10 +763,10 @@ func (a *app) exportVisibleLog() {
 		return
 	}
 	if err := logs.ExportEvents(dlg.FilePath, a.events.All()); err != nil {
-		walk.MsgBox(a.mw, "Export failed", err.Error(), walk.MsgBoxIconError)
+		walk.MsgBox(a.mw, text.exportFailedTitle, err.Error(), walk.MsgBoxIconError)
 		return
 	}
-	walk.MsgBox(a.mw, "Export complete", dlg.FilePath, walk.MsgBoxIconInformation)
+	walk.MsgBox(a.mw, text.exportCompleteTitle, dlg.FilePath, walk.MsgBoxIconInformation)
 }
 
 func (a *app) hideToTray() {
@@ -624,7 +775,7 @@ func (a *app) hideToTray() {
 	}
 	a.mw.SetVisible(false)
 	if a.notifyIcon != nil {
-		_ = a.notifyIcon.SetToolTip("USB Suspend Watch - monitoring")
+		_ = a.notifyIcon.SetToolTip(a.text().trayTooltip)
 	}
 }
 
@@ -644,9 +795,10 @@ func (a *app) notifyImportantEvent(event model.Event) {
 	if a.mw != nil && a.mw.Visible() && !win.IsIconic(a.mw.Handle()) {
 		return
 	}
+	text := a.text()
 	device := event.Device.DisplayName()
 	if strings.TrimSpace(device) == "" || device == "(unknown USB device)" {
-		device = "USB device"
+		device = text.unknownUSBDevice
 	}
 	message := device
 	if event.Message != "" {
@@ -656,9 +808,9 @@ func (a *app) notifyImportantEvent(event model.Event) {
 	case model.EventError:
 		_ = a.notifyIcon.ShowError("USB Suspend Watch", message)
 	case model.EventResume, model.EventPowerD0Entry:
-		_ = a.notifyIcon.ShowInfo("USB Resume", message)
+		_ = a.notifyIcon.ShowInfo(text.notifyResumeTitle, message)
 	default:
-		_ = a.notifyIcon.ShowWarning("USB Suspend suspected", message)
+		_ = a.notifyIcon.ShowWarning(text.notifySuspendTitle, message)
 	}
 }
 

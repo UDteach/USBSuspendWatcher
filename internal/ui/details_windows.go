@@ -9,42 +9,44 @@ import (
 	"usb-suspend-watch/internal/model"
 )
 
-func formatDevice(d model.DeviceSnapshot) string {
+func formatDevice(d model.DeviceSnapshot, language displayLanguage) string {
+	text := stringsFor(language)
 	lines := []string{
-		"Device / デバイス",
-		"Name / 名前: " + d.DisplayName(),
+		text.deviceDetailsTitle,
+		text.deviceName + ": " + d.DisplayName(),
 		"Instance ID: " + d.InstanceID,
 		"Hardware ID: " + d.HardwareID,
 		"VID/PID: " + d.VIDPID(),
 		"Revision: " + d.Revision,
 		"Serial: " + d.Serial,
-		"Power state / 電源状態: " + string(d.PowerState),
-		"Manufacturer / 製造元: " + d.Manufacturer,
+		text.devicePowerState + ": " + string(d.PowerState),
+		text.deviceManufacturer + ": " + d.Manufacturer,
 		"Service: " + d.Service,
 		"Class: " + d.Class,
 		"Enumerator: " + d.Enumerator,
-		"Location / 場所: " + d.Location,
-		"Last seen / 最終確認: " + d.LastSeen.Format(time.RFC3339),
+		text.deviceLocation + ": " + d.Location,
+		text.deviceLastSeen + ": " + d.LastSeen.Format(time.RFC3339),
 	}
 	return strings.Join(lines, "\r\n")
 }
 
-func formatEvent(e model.Event) string {
+func formatEvent(e model.Event, language displayLanguage) string {
+	text := stringsFor(language)
 	lines := []string{
-		"Event / イベント",
-		"Mark / 重要表示: " + eventMark(e),
-		"Time / 時刻: " + e.Time.Format(time.RFC3339Nano),
-		"Type / 種別: " + string(e.Type),
+		text.eventDetailsTitle,
+		text.eventMark + ": " + eventMark(e, language),
+		text.eventTime + ": " + e.Time.Format(time.RFC3339Nano),
+		text.eventType + ": " + string(e.Type),
 		"Source: " + string(e.Source),
-		"Confidence / 信頼度: " + string(e.Confidence),
-		"Message / メッセージ: " + e.Message,
+		text.eventConfidence + ": " + string(e.Confidence),
+		text.eventMessage + ": " + e.Message,
 		"Provider: " + e.Provider,
 		fmt.Sprintf("Event ID: %d", e.EventID),
 		"",
-		formatDevice(e.Device),
+		formatDevice(e.Device, language),
 	}
 	if len(e.Raw) > 0 {
-		lines = append(lines, "", "Raw ETW properties:")
+		lines = append(lines, "", text.rawETWProperties+":")
 		keys := make([]string, 0, len(e.Raw))
 		for key := range e.Raw {
 			keys = append(keys, key)

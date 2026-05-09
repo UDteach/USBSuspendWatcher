@@ -66,19 +66,40 @@ func TestFilterEventsHighOnlyAndError(t *testing.T) {
 }
 
 func TestEventMark(t *testing.T) {
-	cases := map[model.EventType]string{
-		model.EventSuspectSuspend: "! Suspend",
-		model.EventPowerD0Exit:    "! Suspend",
-		model.EventResume:         "Resume",
-		model.EventError:          "Error",
-		model.EventPnPArrival:     "PnP +",
-		model.EventPnPRemoval:     "PnP -",
-		model.EventInfo:           "",
+	cases := map[model.EventType]struct {
+		ja string
+		en string
+	}{
+		model.EventSuspectSuspend: {ja: "! Suspend", en: "! Suspend"},
+		model.EventPowerD0Exit:    {ja: "! Suspend", en: "! Suspend"},
+		model.EventResume:         {ja: "Resume", en: "Resume"},
+		model.EventError:          {ja: "エラー", en: "Error"},
+		model.EventPnPArrival:     {ja: "PnP +", en: "PnP +"},
+		model.EventPnPRemoval:     {ja: "PnP -", en: "PnP -"},
+		model.EventInfo:           {ja: "", en: ""},
 	}
 
 	for typ, want := range cases {
-		if got := eventMark(model.Event{Type: typ}); got != want {
-			t.Fatalf("eventMark(%s) = %q, want %q", typ, got, want)
+		if got := eventMark(model.Event{Type: typ}, languageJapanese); got != want.ja {
+			t.Fatalf("eventMark(%s, ja) = %q, want %q", typ, got, want.ja)
 		}
+		if got := eventMark(model.Event{Type: typ}, languageEnglish); got != want.en {
+			t.Fatalf("eventMark(%s, en) = %q, want %q", typ, got, want.en)
+		}
+	}
+}
+
+func TestLanguageStringsUseSingleLanguageLabels(t *testing.T) {
+	ja := stringsFor(languageJapanese)
+	en := stringsFor(languageEnglish)
+
+	if ja.refreshButton != "更新" {
+		t.Fatalf("unexpected Japanese refresh label: %q", ja.refreshButton)
+	}
+	if en.refreshButton != "Refresh" {
+		t.Fatalf("unexpected English refresh label: %q", en.refreshButton)
+	}
+	if ja.refreshButton == en.refreshButton {
+		t.Fatalf("language labels should differ")
 	}
 }

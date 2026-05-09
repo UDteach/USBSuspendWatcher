@@ -62,14 +62,15 @@ func (m *deviceTableModel) All() []model.DeviceSnapshot {
 
 type eventTableModel struct {
 	walk.TableModelBase
-	items   []model.Event
-	visible []model.Event
-	filter  eventFilter
-	limit   int
+	items    []model.Event
+	visible  []model.Event
+	filter   eventFilter
+	language displayLanguage
+	limit    int
 }
 
 func newEventTableModel(limit int) *eventTableModel {
-	return &eventTableModel{limit: limit}
+	return &eventTableModel{limit: limit, language: languageJapanese}
 }
 
 func (m *eventTableModel) RowCount() int {
@@ -80,7 +81,7 @@ func (m *eventTableModel) Value(row, col int) interface{} {
 	e := m.visible[row]
 	switch col {
 	case 0:
-		return eventMark(e)
+		return eventMark(e, m.language)
 	case 1:
 		return e.Time.Format("2006-01-02 15:04:05")
 	case 2:
@@ -123,6 +124,11 @@ func (m *eventTableModel) All() []model.Event {
 func (m *eventTableModel) SetFilter(filter eventFilter) {
 	m.filter = filter
 	m.visible = filterEvents(m.items, m.filter)
+	m.PublishRowsReset()
+}
+
+func (m *eventTableModel) SetLanguage(language displayLanguage) {
+	m.language = language
 	m.PublishRowsReset()
 }
 

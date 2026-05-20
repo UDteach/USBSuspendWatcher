@@ -240,6 +240,25 @@ func TestFormatPrettyJSON(t *testing.T) {
 	}
 }
 
+func TestFormatRelationTreeUsesHangingParentChain(t *testing.T) {
+	got := strings.Join(formatRelationTree(model.DeviceSnapshot{
+		FriendlyName:       "USB Serial Port",
+		COMPort:            "COM52",
+		PowerState:         model.PowerD0,
+		RelationRole:       "port",
+		RelatedInstanceIDs: []string{`FTDIBUS\VID_0403+PID_6001+FT123\0000`},
+		ParentStates: []model.ParentDeviceState{
+			{DisplayName: "USB Hub", PowerState: model.PowerD0},
+			{DisplayName: "USB xHCI Controller", PowerState: model.PowerD0},
+		},
+	}), "\n")
+	for _, want := range []string{"└─ parent/hub: USB xHCI Controller", "   └─ parent/hub: USB Hub", "      └─ device: USB Serial Port (COM52)", "         └─ related candidate:"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("relation tree missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestWithSessionRawAddsSessionAndDiagnosticSummary(t *testing.T) {
 	started := time.Unix(100, 0)
 	a := &app{sessionStarted: started}
@@ -417,10 +436,10 @@ func TestLanguageStringsUseSingleLanguageLabels(t *testing.T) {
 	if ja.languageLabel != "Language" {
 		t.Fatalf("unexpected Japanese language selector label: %q", ja.languageLabel)
 	}
-	if len(ja.deviceColumnTitles) != 9 || ja.deviceColumnTitles[1] != "状態" || ja.deviceColumnTitles[7] != "接続時刻" {
+	if len(ja.deviceColumnTitles) != 10 || ja.deviceColumnTitles[1] != "状態" || ja.deviceColumnTitles[7] != "接続時刻" || ja.deviceColumnTitles[9] != "Parent tree" {
 		t.Fatalf("Japanese device columns should include a state column: %#v", ja.deviceColumnTitles)
 	}
-	if len(en.deviceColumnTitles) != 9 || en.deviceColumnTitles[1] != "State" || en.deviceColumnTitles[7] != "Connected" {
+	if len(en.deviceColumnTitles) != 10 || en.deviceColumnTitles[1] != "State" || en.deviceColumnTitles[7] != "Connected" || en.deviceColumnTitles[9] != "Parent tree" {
 		t.Fatalf("English device columns should include a state column: %#v", en.deviceColumnTitles)
 	}
 	if len(ja.levelOptions) != 3 || ja.levelOptions[0] != "Info以外" {

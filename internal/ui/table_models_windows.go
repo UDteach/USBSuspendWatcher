@@ -54,9 +54,35 @@ func (m *deviceTableModel) Value(row, col int) interface{} {
 			return ""
 		}
 		return d.LastSeen.Format("15:04:05")
+	case 9:
+		return compactParentTree(d)
 	default:
 		return ""
 	}
+}
+
+func compactParentTree(d model.DeviceSnapshot) string {
+	names := make([]string, 0, len(d.ParentStates)+1)
+	for i := len(d.ParentStates) - 1; i >= 0; i-- {
+		state := d.ParentStates[i]
+		name := state.DisplayName
+		if name == "" {
+			name = state.InstanceID
+		}
+		if name == "" {
+			name = "parent unknown"
+		}
+		if state.PowerState != "" && state.PowerState != model.PowerUnknown {
+			name += " [" + string(state.PowerState) + "]"
+		}
+		names = append(names, name)
+	}
+	deviceName := d.DisplayName()
+	if d.PowerState != "" && d.PowerState != model.PowerUnknown {
+		deviceName += " [" + string(d.PowerState) + "]"
+	}
+	names = append(names, deviceName)
+	return strings.Join(names, " └ ")
 }
 
 func (m *deviceTableModel) Set(items []model.DeviceSnapshot) {

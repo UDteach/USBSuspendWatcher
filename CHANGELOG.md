@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.8.3
+
+- Added a default `Parent tree` column to the connected USB table so parent/hub hanging relationships are visible without opening details.
+- Added a double-click device details window for connected USB devices, with selected-device history, diagnostic summary, and raw JSON evidence.
+- Changed the parent/hub detail rendering to use line-drawn hanging tree connectors for parent hubs, selected device, and related candidates.
+- Added tests for the default parent-tree column and line-drawn parent-chain formatting.
+
 ## v0.8.2
 
 - Added diagnostic scores and reasons for USB Serial Port / USB Serial Converter same-device candidates: serial match is 90%, parent-instance match is 70%, location-path match is 60%, and VID/PID-only remains 0%.

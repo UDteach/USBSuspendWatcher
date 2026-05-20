@@ -48,7 +48,7 @@ func formatDevice(d model.DeviceSnapshot, language displayLanguage, monitored bo
 		"Parent / hub chain: " + strings.Join(d.ParentChain, " <- "),
 		"Parent / hub states: " + formatParentStates(d.ParentStates),
 		"Parent low-power while child D0: " + formatBool(d.ParentLowPowerChildD0),
-		"Relation / hub tree:",
+		"Parent / hub tree:",
 	}
 	lines = append(lines, formatRelationTree(d)...)
 	lines = append(lines,
@@ -203,24 +203,30 @@ func formatParentStates(states []model.ParentDeviceState) string {
 
 func formatRelationTree(d model.DeviceSnapshot) []string {
 	var lines []string
-	indent := ""
+	level := 0
 	for i := len(d.ParentStates) - 1; i >= 0; i-- {
 		state := d.ParentStates[i]
 		name := state.DisplayName
 		if name == "" {
 			name = state.InstanceID
 		}
-		lines = append(lines, fmt.Sprintf("%s- parent/hub: %s [%s]", indent, name, state.PowerState))
-		indent += "  "
+		lines = append(lines, fmt.Sprintf("%s└─ parent/hub: %s [%s]", strings.Repeat("   ", level), name, state.PowerState))
+		level++
 	}
-	lines = append(lines, fmt.Sprintf("%s- device: %s [%s, %s]", indent, d.DisplayName(), d.PowerState, d.RelationRole))
+	devicePrefix := strings.Repeat("   ", level)
+	lines = append(lines, fmt.Sprintf("%s└─ device: %s [%s, %s]", devicePrefix, d.DisplayName(), d.PowerState, d.RelationRole))
 	if len(d.RelatedInstanceIDs) > 0 {
-		for _, id := range d.RelatedInstanceIDs {
-			lines = append(lines, fmt.Sprintf("%s  - related candidate: %s", indent, id))
+		relatedPrefix := strings.Repeat("   ", level+1)
+		for i, id := range d.RelatedInstanceIDs {
+			connector := "├─"
+			if i == len(d.RelatedInstanceIDs)-1 {
+				connector = "└─"
+			}
+			lines = append(lines, fmt.Sprintf("%s%s related candidate: %s", relatedPrefix, connector, id))
 		}
 	}
 	if len(lines) == 0 {
-		return []string{"  (no relation data)"}
+		return []string{"└─ (no relation data)"}
 	}
 	return lines
 }

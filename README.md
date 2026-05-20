@@ -2,7 +2,7 @@
 
 USB Suspend Watch is an installer-free Windows desktop utility for watching connected USB devices and recording suspected USB Selective Suspend transitions.
 
-The v0.8.2 release uses one production-ready monitoring layer and one lab-only experimental layer:
+The v0.8.3 release uses one production-ready monitoring layer and one lab-only experimental layer:
 
 - Simple mode: runs without elevation, watches `WM_DEVICECHANGE`, polls SetupAPI, and reads `SPDRP_DEVICE_POWER_DATA`.
 - Experimental ETW mode: starts from the GUI button and may show UAC because Windows requires elevated rights for USB ETW sessions.
@@ -13,13 +13,14 @@ No driver, service, installer, USBPcap dependency, or telemetry is used.
 
 - Desktop GUI with a Japanese/English language dropdown.
 - Shows a monitoring status summary with connected USB count, low-power device count, suspected suspend count, resume count, privilege, and log path.
-- Lists currently connected USB devices, including each device's current UI state, COM port, connection time, and last-seen time.
+- Lists currently connected USB devices, including each device's current UI state, COM port, connection time, last-seen time, and a default parent-tree column.
 - Defaults to an `FTDI COM only` target filter so FTDI-style USB serial adapters and their related converter nodes are easier to inspect. Switch to `All USB` to see every USB device.
 - Groups FTDI adapter candidates by logical evidence so `USB Serial Port (COMxx)` and `USB Serial Converter` can be inspected together without assuming they are definitely the same physical device.
 - Lets you enable or disable monitoring per connected USB device with checkboxes.
 - Shows a USB changes / transitions pane below the connected-device list for D0/D3, PnP, suspend/resume, and system sleep/wake sequence tracking.
 - Shows a selected-device sequence pane for D0/D3, PnP, parent/hub, wake, and related converter/port events observed after the app started.
 - Separates the diagnostic summary from pretty-printed raw JSON evidence so the exact D0/D3, parent-state, wake, and same-device-candidate evidence can be copied.
+- Opens a dedicated device details window when a connected USB device row is double-clicked.
 - Records PnP arrival and removal events.
 - Records system sleep and wake broadcasts so USB changes can be correlated with PC suspend/resume.
 - Captures `powercfg /lastwake` after wake broadcasts when Windows allows it and labels wake confidence as high, medium, low, or unknown based on available evidence.
@@ -57,7 +58,7 @@ This is an inference from Windows device power data, not a kernel trace.
 
 ### Experimental ETW Mode
 
-The ETW helper is not considered production-ready in v0.8.2 because provider behavior differs by Windows build, permissions, and USB stack provider.
+The ETW helper is not considered production-ready in v0.8.3 because provider behavior differs by Windows build, permissions, and USB stack provider.
 
 For lab testing, click `Start ETW (experimental)`. Depending on the machine policy, this may show UAC. If UAC appears, approve it to start the elevated helper process.
 If no helper log appears within 45 seconds, the GUI records a retryable error so the app does not wait forever. The helper enables USB ETW providers one by one; if one provider is unavailable, the others can still run and the unavailable provider is written to the ETW helper log.
@@ -91,6 +92,8 @@ The main window is split by role:
 - Right middle: the selected device's session sequence.
 - Right bottom: diagnostic summary and raw JSON evidence.
 
+The connected-device table shows the parent/hub chain by default in the `Parent tree` column. The selected-device diagnostic area and double-click details window show the same relationship as a hanging tree with line characters.
+
 The selected-device diagnostic area includes the evidence used for simple-mode power classification:
 
 - `SPDRP_DEVICE_POWER_DATA` raw bytes.
@@ -101,7 +104,7 @@ The selected-device diagnostic area includes the evidence used for simple-mode p
 - Logical group, relation role, and related instance IDs for USB Serial Port / USB Serial Converter same-device candidates.
 - Same-device candidate score and reasons: serial match is 90%, parent-instance match is 70%, location-path match is 60%, and VID/PID-only is 0% because it is not enough evidence.
 - Parent/hub power states, including a `parent_low_power_child_d0` warning when a child reports D0 while a parent or hub reports D1/D2/D3.
-- An indented relation tree that shows parent hubs above the selected device and related converter/port candidates below it.
+- A line-drawn parent/hub tree that shows parent hubs above the selected device and related converter/port candidates below it.
 - Connected-at, last-changed, and recent per-device event sequence from the current app session.
 - Wake correlation for nearby USB/PnP/D0/D3 events and `powercfg /lastwake` output after PC resume.
 
@@ -154,7 +157,7 @@ go test ./...
 go vet ./...
 go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
-.\build.ps1 -Version v0.8.2
+.\build.ps1 -Version v0.8.3
 ```
 
 `go test -race` requires CGO and a C compiler on Windows. The release package is built with `CGO_ENABLED=0`.

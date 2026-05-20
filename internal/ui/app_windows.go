@@ -220,17 +220,21 @@ func (a *app) createWindow() error {
 								Columns: []d.TableViewColumn{
 									{Title: text.deviceColumnTitles[0], Width: 250},
 									{Title: text.deviceColumnTitles[1], Width: 170},
-									{Title: text.deviceColumnTitles[2], Width: 110},
-									{Title: text.deviceColumnTitles[3], Width: 70},
-									{Title: text.deviceColumnTitles[4], Width: 90},
-									{Title: text.deviceColumnTitles[5], Width: 85},
-									{Title: text.deviceColumnTitles[6], Width: 160},
-									{Title: text.deviceColumnTitles[7], Width: 115},
+									{Title: text.deviceColumnTitles[2], Width: 170},
+									{Title: text.deviceColumnTitles[3], Width: 110},
+									{Title: text.deviceColumnTitles[4], Width: 70},
+									{Title: text.deviceColumnTitles[5], Width: 90},
+									{Title: text.deviceColumnTitles[6], Width: 85},
+									{Title: text.deviceColumnTitles[7], Width: 160},
 									{Title: text.deviceColumnTitles[8], Width: 115},
+									{Title: text.deviceColumnTitles[9], Width: 320},
 								},
 								Model: a.devices,
 								OnSelectedIndexesChanged: func() {
 									a.onDeviceSelectionChanged()
+								},
+								OnItemActivated: func() {
+									a.openSelectedDeviceDetailsWindow()
 								},
 							},
 							d.Label{AssignTo: &a.groupsLabel, Text: text.adapterGroupsTitle},
@@ -569,6 +573,98 @@ func (a *app) onUSBChangeSelectionChanged() {
 func (a *app) onDeviceMonitorChanged(model.DeviceSnapshot, bool) {
 	a.updateSummary()
 	a.updateDetails()
+}
+
+func (a *app) openSelectedDeviceDetailsWindow() {
+	if idx := selectedIndex(a.deviceView); idx >= 0 {
+		if device, ok := a.devices.Item(idx); ok {
+			a.openDeviceDetailsWindow(device)
+		}
+	}
+}
+
+func (a *app) openDeviceDetailsWindow(device model.DeviceSnapshot) {
+	history := a.events.DeviceHistory(device, 200)
+	sequence := newEventTableModel(200)
+	sequence.SetLanguage(a.language)
+	sequence.Set(history)
+
+	var dlg *walk.Dialog
+	var closeButton *walk.PushButton
+	text := a.text()
+	if _, err := (d.Dialog{
+		AssignTo: &dlg,
+		Title:    "USB device details - " + device.DisplayName(),
+		Size:     d.Size{Width: 1080, Height: 760},
+		MinSize:  d.Size{Width: 860, Height: 560},
+		Icon:     a.icon,
+		Layout:   d.VBox{Margins: d.Margins{Left: 8, Top: 8, Right: 8, Bottom: 8}},
+		Children: []d.Widget{
+			d.Label{Text: device.DisplayName(), EllipsisMode: d.EllipsisEnd},
+			d.HSplitter{
+				Children: []d.Widget{
+					d.Composite{
+						Layout: d.VBox{MarginsZero: true},
+						Children: []d.Widget{
+							d.Label{Text: text.selectedSequenceTitle},
+							d.TableView{
+								AlternatingRowBG: true,
+								ColumnsOrderable: true,
+								MaxSize:          d.Size{Height: 220},
+								Columns: []d.TableViewColumn{
+									{Title: text.eventColumnTitles[0], Width: 90},
+									{Title: text.eventColumnTitles[1], Width: 145},
+									{Title: text.eventColumnTitles[2], Width: 125},
+									{Title: text.eventColumnTitles[3], Width: 85},
+									{Title: text.eventColumnTitles[4], Width: 110},
+									{Title: text.eventColumnTitles[5], Width: 210},
+									{Title: text.eventColumnTitles[6], Width: 360},
+								},
+								Model: sequence,
+							},
+							d.Label{Text: text.diagnosticDetailsTitle},
+							d.TextEdit{
+								ReadOnly: true,
+								VScroll:  true,
+								HScroll:  true,
+								Text:     formatDevice(device, a.language, a.devices.IsMonitored(device), history),
+							},
+						},
+					},
+					d.Composite{
+						Layout: d.VBox{MarginsZero: true},
+						Children: []d.Widget{
+							d.Label{Text: text.rawDetailsTitle},
+							d.TextEdit{
+								ReadOnly: true,
+								VScroll:  true,
+								HScroll:  true,
+								Text:     formatDeviceRaw(device, history),
+							},
+						},
+					},
+				},
+			},
+			d.Composite{
+				Layout: d.HBox{MarginsZero: true},
+				Children: []d.Widget{
+					d.HSpacer{},
+					d.PushButton{
+						AssignTo: &closeButton,
+						Text:     "Close",
+						OnClicked: func() {
+							if dlg != nil {
+								dlg.Accept()
+							}
+						},
+					},
+				},
+			},
+		},
+		CancelButton: &closeButton,
+	}).Run(a.mw); err != nil {
+		walk.MsgBox(a.mw, "USB device details", "failed to open device details: "+err.Error(), walk.MsgBoxOK|walk.MsgBoxIconError)
+	}
 }
 
 func (a *app) updateDetails() {

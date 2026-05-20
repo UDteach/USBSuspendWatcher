@@ -124,7 +124,7 @@ func TestDeviceCurrentStateReflectsMonitoringAndPower(t *testing.T) {
 	}
 }
 
-func TestDeviceTableModelShowsStateColumnAndLanguage(t *testing.T) {
+func TestDeviceTableModelShowsParentTreeAndStateColumns(t *testing.T) {
 	m := newDeviceTableModel()
 	device := model.DeviceSnapshot{
 		InstanceID:   `USB\VID_0BDA&PID_0129\A`,
@@ -132,9 +132,16 @@ func TestDeviceTableModelShowsStateColumnAndLanguage(t *testing.T) {
 		Present:      true,
 		PowerState:   model.PowerD3,
 		COMPort:      "COM52",
+		ParentStates: []model.ParentDeviceState{
+			{DisplayName: "USB Hub", PowerState: model.PowerD0},
+			{DisplayName: "USB xHCI Controller", PowerState: model.PowerD0},
+		},
 	}
 
 	m.Set([]model.DeviceSnapshot{device})
+	if got := m.Value(0, 9); got != "USB xHCI Controller [D0] └ USB Hub [D0] └ USB Reader (COM52) [D3]" {
+		t.Fatalf("parent tree column = %q", got)
+	}
 	if got := m.Value(0, 1); got != "低電力 / Suspend疑い (D3)" {
 		t.Fatalf("Japanese state column = %q", got)
 	}

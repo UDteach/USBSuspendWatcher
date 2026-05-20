@@ -240,6 +240,36 @@ func TestFormatPrettyJSON(t *testing.T) {
 	}
 }
 
+func TestFormatPowerTransitionEvidenceShowsPreviousAndCurrent(t *testing.T) {
+	got := formatPowerTransitionEvidence(model.Event{Raw: map[string]string{
+		"previous_power_state":          "D0",
+		"current_power_state":           "D3",
+		"previous_power_state_evidence": "previous SPDRP_DEVICE_POWER_DATA",
+		"power_state_evidence":          "current SPDRP_DEVICE_POWER_DATA",
+	}})
+	for _, want := range []string{"D0 -> D3", "previous SPDRP_DEVICE_POWER_DATA", "current SPDRP_DEVICE_POWER_DATA"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("transition evidence missing %q: %q", want, got)
+		}
+	}
+}
+
+func TestEventListMessageShowsTransitionEvidence(t *testing.T) {
+	got := eventListMessage(model.Event{
+		Message: "device power state changed",
+		Raw: map[string]string{
+			"previous_power_state": "D0",
+			"current_power_state":  "D3",
+			"power_state_evidence": "SPDRP_DEVICE_POWER_DATA",
+		},
+	})
+	for _, want := range []string{"device power state changed", "D0 -> D3", "SPDRP_DEVICE_POWER_DATA"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("event list message missing %q: %q", want, got)
+		}
+	}
+}
+
 func TestFormatRelationTreeUsesHangingParentChain(t *testing.T) {
 	got := strings.Join(formatRelationTree(model.DeviceSnapshot{
 		FriendlyName:       "USB Serial Port",

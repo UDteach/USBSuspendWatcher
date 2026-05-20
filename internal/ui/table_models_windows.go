@@ -144,10 +144,10 @@ func (m *deviceTableModel) SetLanguage(language displayLanguage) {
 }
 
 func (m *deviceTableModel) Item(row int) (model.DeviceSnapshot, bool) {
-	if row < 0 || row >= len(m.rows) || m.rows[row].kind != deviceTableRowDevice {
+	if row < 0 || row >= len(m.rows) {
 		return model.DeviceSnapshot{}, false
 	}
-	return m.rows[row].device, true
+	return m.rows[row].Device(), true
 }
 
 func (m *deviceTableModel) All() []model.DeviceSnapshot {
@@ -158,7 +158,7 @@ func (m *deviceTableModel) All() []model.DeviceSnapshot {
 
 func (m *deviceTableModel) IndexOfDevice(target model.DeviceSnapshot) int {
 	for i, row := range m.rows {
-		if row.kind == deviceTableRowDevice && sameDeviceForSelection(row.device, target) {
+		if sameDeviceForSelection(row.Device(), target) {
 			return i
 		}
 	}
@@ -219,17 +219,17 @@ func parentRowKey(parent model.ParentDeviceState) string {
 }
 
 func (m *deviceTableModel) Checked(row int) bool {
-	if row < 0 || row >= len(m.rows) || m.rows[row].kind != deviceTableRowDevice {
+	if row < 0 || row >= len(m.rows) {
 		return false
 	}
-	return m.IsMonitored(m.rows[row].device)
+	return m.IsMonitored(m.rows[row].Device())
 }
 
 func (m *deviceTableModel) SetChecked(row int, checked bool) error {
-	if row < 0 || row >= len(m.rows) || m.rows[row].kind != deviceTableRowDevice {
+	if row < 0 || row >= len(m.rows) {
 		return nil
 	}
-	device := m.rows[row].device
+	device := m.rows[row].Device()
 	for _, key := range deviceMonitorKeys(device) {
 		m.monitoredByKey[key] = checked
 	}
@@ -238,6 +238,27 @@ func (m *deviceTableModel) SetChecked(row int, checked bool) error {
 		m.onMonitorChanged(device, checked)
 	}
 	return nil
+}
+
+func (r deviceTableRow) Device() model.DeviceSnapshot {
+	if r.kind == deviceTableRowDevice {
+		return r.device
+	}
+	return parentDeviceSnapshot(r.parent)
+}
+
+func parentDeviceSnapshot(parent model.ParentDeviceState) model.DeviceSnapshot {
+	return model.DeviceSnapshot{
+		InstanceID:         parent.InstanceID,
+		FriendlyName:       parent.DisplayName,
+		Service:            parent.Service,
+		Class:              parent.Class,
+		Enumerator:         parent.Enumerator,
+		PowerState:         parent.PowerState,
+		PowerStateEvidence: parent.Evidence,
+		Present:            true,
+		LastSeen:           time.Now(),
+	}
 }
 
 func (m *deviceTableModel) IsMonitored(device model.DeviceSnapshot) bool {
@@ -590,10 +611,21 @@ func (m *eventTableModel) Value(row, col int) interface{} {
 	case 5:
 		return e.Device.DisplayName()
 	case 6:
-		return e.Message
+		return eventListMessage(e)
 	default:
 		return ""
 	}
+}
+
+func eventListMessage(e model.Event) string {
+	message := e.Message
+	if transition := compactPowerTransitionEvidence(e); transition != "" {
+		if message != "" {
+			message += " | "
+		}
+		message += transition
+	}
+	return message
 }
 
 func (m *eventTableModel) Add(event model.Event) {

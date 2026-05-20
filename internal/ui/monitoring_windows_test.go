@@ -312,8 +312,9 @@ func TestDeviceTableModelShowsStateColumns(t *testing.T) {
 	if got := m.Value(2, 0); got != "   └─ USB Reader (COM52)" {
 		t.Fatalf("device tree row = %q", got)
 	}
-	if _, ok := m.Item(0); ok {
-		t.Fatalf("parent row should not be treated as a selectable device")
+	parent, ok := m.Item(0)
+	if !ok || parent.InstanceID != "" && parent.DisplayName() == "" {
+		t.Fatalf("parent row should be available as a watchable detail target: %#v", parent)
 	}
 	if got := m.Value(2, 1); got != "低電力 / Suspend疑い (D3)" {
 		t.Fatalf("Japanese state column = %q", got)
@@ -332,6 +333,35 @@ func TestDeviceTableModelShowsStateColumns(t *testing.T) {
 	}
 	if got := m.Value(2, 5); got != "COM52" {
 		t.Fatalf("COM column = %q", got)
+	}
+}
+
+func TestDeviceTableModelParentRowsAreWatchable(t *testing.T) {
+	m := newDeviceTableModel()
+	device := model.DeviceSnapshot{
+		InstanceID:   `USB\VID_0BDA&PID_0129\A`,
+		FriendlyName: "USB Reader",
+		ParentStates: []model.ParentDeviceState{
+			{InstanceID: `USB\ROOT_HUB30\1`, DisplayName: "USB Root Hub", Service: "USBHUB3", PowerState: model.PowerD0},
+		},
+	}
+
+	m.Set([]model.DeviceSnapshot{device})
+	parent, ok := m.Item(0)
+	if !ok {
+		t.Fatalf("parent row should return a synthetic device")
+	}
+	if parent.InstanceID != `USB\ROOT_HUB30\1` || parent.Service != "USBHUB3" {
+		t.Fatalf("unexpected parent device: %#v", parent)
+	}
+	if !m.Checked(0) {
+		t.Fatalf("parent row should be monitored by default")
+	}
+	if err := m.SetChecked(0, false); err != nil {
+		t.Fatalf("SetChecked returned error: %v", err)
+	}
+	if m.IsMonitored(parent) {
+		t.Fatalf("parent row monitoring state should be toggleable")
 	}
 }
 

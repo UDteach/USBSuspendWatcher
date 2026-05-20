@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.8.5
+
+- Fixed parent/hub rows in the connected USB tree so root hubs, USB3 hubs, USB4 routers, and other parent nodes can be checked, watched, selected, and opened with double-click details.
+- Added explicit previous/current power transition evidence such as `D0 -> D3` or `D3 -> D0` to event details and selected-device sequences.
+- Added compact transition evidence to event-list messages so the visible timeline shows what changed and which power-state evidence produced the judgment.
+- Added regression tests for watchable parent rows and visible transition evidence.
+
 ## v0.8.4
 
 - Kept the selected connected USB row as a watch target across refreshes and reconnects when stable identity evidence can match the device again.

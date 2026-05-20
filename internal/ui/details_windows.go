@@ -78,9 +78,11 @@ func formatEvent(e model.Event, language displayLanguage, monitored bool, wakeCo
 		text.eventMessage + ": " + e.Message,
 		"Provider: " + e.Provider,
 		fmt.Sprintf("Event ID: %d", e.EventID),
-		"",
-		formatDevice(e.Device, language, monitored, nil),
 	}
+	if transition := formatPowerTransitionEvidence(e); transition != "" {
+		lines = append(lines, "Power transition: "+transition)
+	}
+	lines = append(lines, "", formatDevice(e.Device, language, monitored, nil))
 	if len(wakeCorrelation) > 0 && (e.Type == model.EventSystemWake || e.Type == model.EventSystemSleep) {
 		lines = append(lines, "", "Wake correlation:")
 		for _, event := range wakeCorrelation {
@@ -88,6 +90,52 @@ func formatEvent(e model.Event, language displayLanguage, monitored bool, wakeCo
 		}
 	}
 	return strings.Join(lines, "\r\n")
+}
+
+func formatPowerTransitionEvidence(e model.Event) string {
+	if e.Raw == nil {
+		return ""
+	}
+	transition := compactPowerTransitionEvidence(e)
+	if transition == "" {
+		return ""
+	}
+	parts := []string{transition}
+	if evidence := e.Raw["previous_power_state_evidence"]; evidence != "" {
+		parts = append(parts, "previous evidence: "+evidence)
+	}
+	if evidence := e.Raw["power_state_evidence"]; evidence != "" {
+		parts = append(parts, "current evidence: "+evidence)
+	}
+	return strings.Join(parts, " | ")
+}
+
+func compactPowerTransitionEvidence(e model.Event) string {
+	if e.Raw == nil {
+		return ""
+	}
+	previous := e.Raw["previous_power_state"]
+	current := e.Raw["current_power_state"]
+	if previous == "" && current == "" {
+		return ""
+	}
+	if previous == "" {
+		previous = "unknown"
+	}
+	if current == "" {
+		current = string(e.Device.PowerState)
+	}
+	if current == "" {
+		current = "unknown"
+	}
+	evidence := e.Raw["power_state_evidence"]
+	if evidence == "" {
+		evidence = e.Device.PowerStateEvidence
+	}
+	if evidence == "" {
+		return previous + " -> " + current
+	}
+	return previous + " -> " + current + " from " + evidence
 }
 
 func formatDeviceRaw(d model.DeviceSnapshot, history []model.Event) string {
@@ -122,6 +170,9 @@ func diagnosticSummary(d model.DeviceSnapshot, history []model.Event) []string {
 	if d.PowerState != "" && d.PowerState != model.PowerUnknown {
 		lines = append(lines, fmt.Sprintf("%s reports %s from %s", name, d.PowerState, emptyAsUnknown(d.PowerStateEvidence)))
 	}
+	if transition := latestPowerTransitionSummary(history); transition != "" {
+		lines = append(lines, "latest observed transition: "+transition)
+	}
 	if d.DiagnosticScore > 0 {
 		lines = append(lines, fmt.Sprintf("same-device candidate %d%%: %s", d.DiagnosticScore, strings.Join(d.DiagnosticReasons, ", ")))
 	} else if d.LogicalGroupReason != "" {
@@ -139,6 +190,15 @@ func diagnosticSummary(d model.DeviceSnapshot, history []model.Event) []string {
 		lines = append(lines, "no session transition evidence selected")
 	}
 	return lines
+}
+
+func latestPowerTransitionSummary(history []model.Event) string {
+	for i := len(history) - 1; i >= 0; i-- {
+		if transition := compactPowerTransitionEvidence(history[i]); transition != "" {
+			return transition
+		}
+	}
+	return ""
 }
 
 func formatDiagnosticScore(d model.DeviceSnapshot) string {
@@ -241,13 +301,17 @@ func formatEventSequence(events []model.Event) string {
 }
 
 func formatSequenceLine(event model.Event) string {
+	message := event.Message
+	if transition := formatPowerTransitionEvidence(event); transition != "" {
+		message += " [" + transition + "]"
+	}
 	return fmt.Sprintf(
 		"%s  %s  %s  %s  %s",
 		event.Time.Format("2006-01-02 15:04:05"),
 		event.Type,
 		event.Source,
 		event.Device.DisplayName(),
-		event.Message,
+		message,
 	)
 }
 

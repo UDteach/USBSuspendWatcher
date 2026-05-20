@@ -2,7 +2,7 @@
 
 USB Suspend Watch is an installer-free Windows desktop utility for watching connected USB devices and recording suspected USB Selective Suspend transitions.
 
-The v0.8.4 release uses one production-ready monitoring layer and one lab-only experimental layer:
+The v0.8.5 release uses one production-ready monitoring layer and one lab-only experimental layer:
 
 - Simple mode: runs without elevation, watches `WM_DEVICECHANGE`, polls SetupAPI, and reads `SPDRP_DEVICE_POWER_DATA`.
 - Experimental ETW mode: starts from the GUI button and may show UAC because Windows requires elevated rights for USB ETW sessions.
@@ -16,7 +16,7 @@ No driver, service, installer, USBPcap dependency, or telemetry is used.
 - Lists currently connected USB devices as a tree-like list with parent/hub rows above their child device rows, including USB3 hub, xHCI, USB4 router, Thunderbolt, and USB-C UCSI topology hints when Windows exposes them.
 - Defaults to an `FTDI COM only` target filter so FTDI-style USB serial adapters and their related converter nodes are easier to inspect. Switch to `All USB` to see every USB device.
 - Groups FTDI adapter candidates by logical evidence so `USB Serial Port (COMxx)` and `USB Serial Converter` can be inspected together without assuming they are definitely the same physical device.
-- Lets you enable or disable monitoring per connected USB device with checkboxes, using specific identity keys before broader fallback evidence.
+- Lets you enable or disable monitoring per connected USB device, parent hub, USB3 hub, USB4 router, or USB-C topology row with checkboxes, using specific identity keys before broader fallback evidence.
 - Keeps the selected connected device as the current watch target across refreshes and reconnects when stable evidence such as VID/PID plus serial, logical group, related instance IDs, instance ID, or COM port allows it.
 - Shows a USB changes / transitions pane below the connected-device list for D0/D3, PnP, suspend/resume, and system sleep/wake sequence tracking.
 - Shows a selected-device sequence pane for D0/D3, PnP, parent/hub, wake, and related converter/port events observed after the app started.
@@ -59,7 +59,7 @@ This is an inference from Windows device power data, not a kernel trace.
 
 ### Experimental ETW Mode
 
-The ETW helper is not considered production-ready in v0.8.4 because provider behavior differs by Windows build, permissions, and USB stack provider.
+The ETW helper is not considered production-ready in v0.8.5 because provider behavior differs by Windows build, permissions, and USB stack provider.
 
 For lab testing, click `Start ETW (experimental)`. Depending on the machine policy, this may show UAC. If UAC appears, approve it to start the elevated helper process.
 If no helper log appears within 45 seconds, the GUI records a retryable error so the app does not wait forever. The helper enables USB ETW providers one by one; if one provider is unavailable, the others can still run and the unavailable provider is written to the ETW helper log.
@@ -99,6 +99,8 @@ The selected-device diagnostic area includes the evidence used for simple-mode p
 
 - `SPDRP_DEVICE_POWER_DATA` raw bytes.
 - `CM_POWER_DATA.PD_MostRecentPowerState`, mapped to D0/D1/D2/D3.
+- Previous/current power transition evidence such as `D0 -> D3` or `D3 -> D0` in event details and selected-device sequences.
+- Compact transition evidence in the visible event timeline, so rows show both what changed and the source evidence used for the judgment.
 - COM port name from the device registry `PortName` value when available.
 - Whether the device looks like the FTDI USB serial target under inspection.
 - VID/PID, revision, serial, physical device object name, location paths, and parent/hub instance chain.
@@ -159,7 +161,7 @@ go test ./...
 go vet ./...
 go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
-.\build.ps1 -Version v0.8.4
+.\build.ps1 -Version v0.8.5
 ```
 
 `go test -race` requires CGO and a C compiler on Windows. The release package is built with `CGO_ENABLED=0`.

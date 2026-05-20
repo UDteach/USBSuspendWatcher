@@ -93,16 +93,33 @@ func (p *Poller) scan(emit bool) {
 		return
 	}
 
+	p.mu.RLock()
+	prev := p.previous
+	wasReady := p.ready
+	p.mu.RUnlock()
+
 	current := make(map[string]model.DeviceSnapshot, len(devices))
-	for _, d := range devices {
+	for i, d := range devices {
+		if old, ok := prev[d.InstanceID]; ok {
+			d.ConnectedAt = old.ConnectedAt
+			d.LastChanged = old.LastChanged
+			if d.ConnectedAt.IsZero() {
+				d.ConnectedAt = old.LastSeen
+			}
+			if deviceChanged(old, d) {
+				d.LastChanged = d.LastSeen
+			}
+		} else {
+			d.ConnectedAt = d.LastSeen
+			d.LastChanged = d.LastSeen
+		}
+		devices[i] = d
 		current[d.InstanceID] = d
 	}
 
 	p.mu.Lock()
-	prev := p.previous
 	p.previous = current
 	p.devices = devices
-	wasReady := p.ready
 	p.ready = true
 	p.mu.Unlock()
 
@@ -119,7 +136,8 @@ func (p *Poller) scan(emit bool) {
 				Source:     model.SourceSetupAPIPoll,
 				Confidence: model.ConfidenceHigh,
 				Device:     d,
-				Message:    "USB device appeared in SetupAPI snapshot",
+				Message:    "USB device appeared in SetupAPI snapshot at " + d.ConnectedAt.Format(time.RFC3339),
+				Raw:        model.DeviceEvidenceRaw(d),
 			})
 			continue
 		}
@@ -141,8 +159,17 @@ func (p *Poller) scan(emit bool) {
 			Confidence: model.ConfidenceHigh,
 			Device:     old,
 			Message:    "USB device disappeared from SetupAPI snapshot",
+			Raw:        model.DeviceEvidenceRaw(old),
 		})
 	}
+}
+
+func deviceChanged(old, current model.DeviceSnapshot) bool {
+	return old.PowerState != current.PowerState ||
+		old.Present != current.Present ||
+		old.COMPort != current.COMPort ||
+		old.ParentInstanceID != current.ParentInstanceID ||
+		old.Location != current.Location
 }
 
 func (p *Poller) send(event model.Event) {

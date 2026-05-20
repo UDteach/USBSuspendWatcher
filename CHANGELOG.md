@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.8.0
+
+- Show ETW helper privilege separately from the GUI privilege so elevated helper startup is visible even when the GUI remains a standard-user process.
+- Added FTDI/USB serial diagnostics: COM port, serial/revision, physical device object, location paths, and parent/hub instance chain.
+- Added connected-at and last-changed timestamps plus a selected-device recent sequence view.
+- Added raw SetupAPI power evidence to device details and JSONL events, including `SPDRP_DEVICE_POWER_DATA` bytes and the `PD_MostRecentPowerState` value used for D0/D1/D2/D3.
+- Added `WM_POWERBROADCAST` sleep/wake events to the timeline so system suspend/resume can be correlated with USB plug, removal, and power-state transitions.
+
 ## v0.7.2
 
 - Started the ETW session before enabling USB providers and enabled providers one by one, so one unavailable provider no longer prevents all ETW monitoring.

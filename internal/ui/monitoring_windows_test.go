@@ -131,6 +131,7 @@ func TestDeviceTableModelShowsStateColumnAndLanguage(t *testing.T) {
 		FriendlyName: "USB Reader",
 		Present:      true,
 		PowerState:   model.PowerD3,
+		COMPort:      "COM52",
 	}
 
 	m.Set([]model.DeviceSnapshot{device})
@@ -148,6 +149,25 @@ func TestDeviceTableModelShowsStateColumnAndLanguage(t *testing.T) {
 	}
 	if got := m.Value(0, 1); got != "Monitoring off" {
 		t.Fatalf("unchecked state column = %q", got)
+	}
+	if got := m.Value(0, 5); got != "COM52" {
+		t.Fatalf("COM column = %q", got)
+	}
+}
+
+func TestDeviceHistoryMatchesCOMPortAndSerial(t *testing.T) {
+	m := newEventTableModel(0)
+	device := model.DeviceSnapshot{VID: "0403", PID: "6001", Serial: "FT123", COMPort: "COM52"}
+	m.Add(model.Event{Device: model.DeviceSnapshot{COMPort: "COM52"}, Message: "arrival"})
+	m.Add(model.Event{Device: model.DeviceSnapshot{VID: "0403", PID: "6001", Serial: "FT123"}, Message: "D3"})
+	m.Add(model.Event{Device: model.DeviceSnapshot{COMPort: "COM53"}, Message: "other"})
+
+	history := m.DeviceHistory(device, 10)
+	if len(history) != 2 {
+		t.Fatalf("DeviceHistory length = %d, want 2", len(history))
+	}
+	if history[0].Message != "arrival" || history[1].Message != "D3" {
+		t.Fatalf("unexpected history: %#v", history)
 	}
 }
 

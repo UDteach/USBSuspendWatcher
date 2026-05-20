@@ -17,6 +17,8 @@ const (
 	EventPnPRemoval       EventType = "pnp_removal"
 	EventSuspectSuspend   EventType = "suspect_suspend"
 	EventResume           EventType = "resume"
+	EventSystemSleep      EventType = "system_sleep"
+	EventSystemWake       EventType = "system_wake"
 	EventInfo             EventType = "info"
 	EventError            EventType = "error"
 )
@@ -24,12 +26,13 @@ const (
 type Source string
 
 const (
-	SourceSetupAPIPoll Source = "setupapi_poll"
-	SourceDeviceChange Source = "wm_devicechange"
-	SourceETWUSBHUB3   Source = "etw_usbhub3"
-	SourceETWUCX       Source = "etw_ucx"
-	SourceETWUSBXHCI   Source = "etw_usbxhci"
-	SourceApp          Source = "app"
+	SourceSetupAPIPoll   Source = "setupapi_poll"
+	SourceDeviceChange   Source = "wm_devicechange"
+	SourceETWUSBHUB3     Source = "etw_usbhub3"
+	SourceETWUCX         Source = "etw_ucx"
+	SourceETWUSBXHCI     Source = "etw_usbxhci"
+	SourcePowerBroadcast Source = "wm_powerbroadcast"
+	SourceApp            Source = "app"
 )
 
 type Confidence string
@@ -51,35 +54,51 @@ const (
 )
 
 type DeviceSnapshot struct {
-	InstanceID   string           `json:"instance_id"`
-	Description  string           `json:"description,omitempty"`
-	FriendlyName string           `json:"friendly_name,omitempty"`
-	Manufacturer string           `json:"manufacturer,omitempty"`
-	Service      string           `json:"service,omitempty"`
-	Class        string           `json:"class,omitempty"`
-	Enumerator   string           `json:"enumerator,omitempty"`
-	Location     string           `json:"location,omitempty"`
-	HardwareID   string           `json:"hardware_id,omitempty"`
-	VID          string           `json:"vid,omitempty"`
-	PID          string           `json:"pid,omitempty"`
-	Revision     string           `json:"revision,omitempty"`
-	Serial       string           `json:"serial,omitempty"`
-	PowerState   DevicePowerState `json:"power_state"`
-	Present      bool             `json:"present"`
-	LastSeen     time.Time        `json:"last_seen"`
+	InstanceID               string           `json:"instance_id"`
+	Description              string           `json:"description,omitempty"`
+	FriendlyName             string           `json:"friendly_name,omitempty"`
+	Manufacturer             string           `json:"manufacturer,omitempty"`
+	Service                  string           `json:"service,omitempty"`
+	Class                    string           `json:"class,omitempty"`
+	Enumerator               string           `json:"enumerator,omitempty"`
+	Location                 string           `json:"location,omitempty"`
+	LocationPaths            []string         `json:"location_paths,omitempty"`
+	HardwareID               string           `json:"hardware_id,omitempty"`
+	COMPort                  string           `json:"com_port,omitempty"`
+	PhysicalDeviceObjectName string           `json:"physical_device_object_name,omitempty"`
+	ParentInstanceID         string           `json:"parent_instance_id,omitempty"`
+	ParentChain              []string         `json:"parent_chain,omitempty"`
+	VID                      string           `json:"vid,omitempty"`
+	PID                      string           `json:"pid,omitempty"`
+	Revision                 string           `json:"revision,omitempty"`
+	Serial                   string           `json:"serial,omitempty"`
+	PowerState               DevicePowerState `json:"power_state"`
+	PowerStateEvidence       string           `json:"power_state_evidence,omitempty"`
+	PowerDataHex             string           `json:"power_data_hex,omitempty"`
+	Present                  bool             `json:"present"`
+	ConnectedAt              time.Time        `json:"connected_at,omitempty"`
+	LastChanged              time.Time        `json:"last_changed,omitempty"`
+	LastSeen                 time.Time        `json:"last_seen"`
 }
 
 func (d DeviceSnapshot) DisplayName() string {
 	if d.FriendlyName != "" {
-		return d.FriendlyName
+		return withCOMPort(d.FriendlyName, d.COMPort)
 	}
 	if d.Description != "" {
-		return d.Description
+		return withCOMPort(d.Description, d.COMPort)
 	}
 	if d.InstanceID != "" {
 		return d.InstanceID
 	}
 	return "(unknown USB device)"
+}
+
+func withCOMPort(name, port string) string {
+	if port == "" || strings.Contains(strings.ToUpper(name), strings.ToUpper(port)) {
+		return name
+	}
+	return name + " (" + port + ")"
 }
 
 func (d DeviceSnapshot) VIDPID() string {
@@ -93,6 +112,75 @@ func (d DeviceSnapshot) VIDPID() string {
 	default:
 		return ""
 	}
+}
+
+func (d DeviceSnapshot) IdentitySummary() string {
+	var parts []string
+	if vidpid := d.VIDPID(); vidpid != "" {
+		parts = append(parts, vidpid)
+	}
+	if d.Revision != "" {
+		parts = append(parts, "REV_"+d.Revision)
+	}
+	if d.Serial != "" {
+		parts = append(parts, "serial="+d.Serial)
+	}
+	if d.COMPort != "" {
+		parts = append(parts, "port="+d.COMPort)
+	}
+	if d.ParentInstanceID != "" {
+		parts = append(parts, "parent="+d.ParentInstanceID)
+	}
+	if len(parts) == 0 {
+		return d.InstanceID
+	}
+	return strings.Join(parts, " | ")
+}
+
+func (d DeviceSnapshot) LooksLikeFTDISerial() bool {
+	joined := strings.ToUpper(strings.Join([]string{
+		d.VID,
+		d.Manufacturer,
+		d.FriendlyName,
+		d.Description,
+		d.Service,
+		d.HardwareID,
+		d.InstanceID,
+	}, " "))
+	return d.COMPort != "" && (strings.Contains(joined, "FTDI") || strings.Contains(joined, "VID_0403") || d.VID == "0403")
+}
+
+func DeviceEvidenceRaw(d DeviceSnapshot) map[string]string {
+	raw := make(map[string]string)
+	add := func(key, value string) {
+		if strings.TrimSpace(value) != "" {
+			raw[key] = value
+		}
+	}
+	add("instance_id", d.InstanceID)
+	add("friendly_name", d.FriendlyName)
+	add("description", d.Description)
+	add("hardware_id", d.HardwareID)
+	add("vid", d.VID)
+	add("pid", d.PID)
+	add("revision", d.Revision)
+	add("serial", d.Serial)
+	add("com_port", d.COMPort)
+	if d.LooksLikeFTDISerial() {
+		add("ftdi_serial_target", "true")
+	}
+	add("power_state", string(d.PowerState))
+	add("power_state_evidence", d.PowerStateEvidence)
+	add("power_data_hex", d.PowerDataHex)
+	add("parent_instance_id", d.ParentInstanceID)
+	add("physical_device_object_name", d.PhysicalDeviceObjectName)
+	if len(d.LocationPaths) > 0 {
+		add("location_paths", strings.Join(d.LocationPaths, " | "))
+	}
+	if len(d.ParentChain) > 0 {
+		add("parent_chain", strings.Join(d.ParentChain, " | "))
+	}
+	return raw
 }
 
 type Event struct {

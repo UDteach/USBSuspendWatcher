@@ -139,7 +139,7 @@ func japaneseStrings() uiStrings {
 		typeOptions:           []string{"すべて", "Suspend疑い", "Resume", "PnP", "エラー"},
 		confidenceOptions:     []string{"すべて", "High+Medium", "High only"},
 		levelOptions:          []string{"Info以外", "重要のみ", "すべて"},
-		deviceColumnTitles:    []string{"監視・名前", "状態", "VID/PID", "電源", "列挙子", "場所", "最終確認"},
+		deviceColumnTitles:    []string{"監視・名前", "状態", "VID/PID", "電源", "列挙子", "COM", "場所", "接続時刻", "最終確認"},
 		eventColumnTitles:     []string{"重要", "時刻", "イベント", "信頼度", "ソース", "デバイス", "メッセージ"},
 		emptyDetails:          "デバイスまたはイベントを選択してください。",
 
@@ -221,7 +221,7 @@ func englishStrings() uiStrings {
 		typeOptions:           []string{"All", "Suspected suspend", "Resume", "PnP", "Error"},
 		confidenceOptions:     []string{"All", "High+Medium", "High only"},
 		levelOptions:          []string{"No info", "Important only", "All"},
-		deviceColumnTitles:    []string{"Monitor / Name", "State", "VID/PID", "Power", "Enumerator", "Location", "Last seen"},
+		deviceColumnTitles:    []string{"Monitor / Name", "State", "VID/PID", "Power", "Enumerator", "COM", "Location", "Connected", "Last seen"},
 		eventColumnTitles:     []string{"Mark", "Time", "Event", "Confidence", "Source", "Device", "Message"},
 		emptyDetails:          "Select a device or event to inspect details.",
 

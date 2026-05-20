@@ -38,8 +38,15 @@ func (m *deviceTableModel) Value(row, col int) interface{} {
 	case 4:
 		return d.Enumerator
 	case 5:
-		return d.Location
+		return d.COMPort
 	case 6:
+		return d.Location
+	case 7:
+		if d.ConnectedAt.IsZero() {
+			return ""
+		}
+		return d.ConnectedAt.Format("15:04:05")
+	case 8:
 		if d.LastSeen.IsZero() {
 			return ""
 		}
@@ -170,6 +177,7 @@ func deviceMonitorKeys(device model.DeviceSnapshot) []string {
 		device.InstanceID,
 		device.HardwareID,
 		device.VIDPID(),
+		device.COMPort,
 	}
 	if displayName := device.DisplayName(); displayName != "(unknown USB device)" {
 		candidates = append(candidates, displayName)
@@ -188,6 +196,22 @@ func deviceMonitorKeys(device model.DeviceSnapshot) []string {
 		keys = append(keys, key)
 	}
 	return keys
+}
+
+func sameDeviceForHistory(a, b model.DeviceSnapshot) bool {
+	if strings.TrimSpace(a.InstanceID) != "" && strings.EqualFold(a.InstanceID, b.InstanceID) {
+		return true
+	}
+	if strings.TrimSpace(a.COMPort) != "" && strings.EqualFold(a.COMPort, b.COMPort) {
+		return true
+	}
+	if strings.TrimSpace(a.Serial) != "" &&
+		strings.EqualFold(a.Serial, b.Serial) &&
+		strings.EqualFold(a.VID, b.VID) &&
+		strings.EqualFold(a.PID, b.PID) {
+		return true
+	}
+	return false
 }
 
 type eventTableModel struct {
@@ -248,6 +272,27 @@ func (m *eventTableModel) Item(row int) (model.Event, bool) {
 func (m *eventTableModel) All() []model.Event {
 	out := make([]model.Event, len(m.visible))
 	copy(out, m.visible)
+	return out
+}
+
+func (m *eventTableModel) DeviceHistory(device model.DeviceSnapshot, limit int) []model.Event {
+	if m == nil {
+		return nil
+	}
+	out := make([]model.Event, 0, limit)
+	for i := len(m.items) - 1; i >= 0; i-- {
+		event := m.items[i]
+		if !sameDeviceForHistory(device, event.Device) {
+			continue
+		}
+		out = append(out, event)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
 	return out
 }
 

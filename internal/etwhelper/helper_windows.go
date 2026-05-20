@@ -13,6 +13,7 @@ import (
 
 	"usb-suspend-watch/internal/logs"
 	"usb-suspend-watch/internal/model"
+	"usb-suspend-watch/internal/platform"
 )
 
 type Config struct {
@@ -51,6 +52,7 @@ func Run(cfg Config) int {
 		Source:     model.SourceApp,
 		Confidence: model.ConfidenceHigh,
 		Message:    "ETW helper starting",
+		Raw:        map[string]string{"helper_admin": fmt.Sprint(platform.IsAdmin())},
 	})
 	parentWatch, err := openParentWatch(cfg.ParentPID)
 	if err != nil {
@@ -98,7 +100,10 @@ func Run(cfg Config) int {
 		Source:     model.SourceApp,
 		Confidence: model.ConfidenceHigh,
 		Message:    "ETW helper running",
-		Raw:        map[string]string{"providers": strings.Join(enabledProviders, ",")},
+		Raw: map[string]string{
+			"helper_admin": fmt.Sprint(platform.IsAdmin()),
+			"providers":    strings.Join(enabledProviders, ","),
+		},
 	})
 
 	for {

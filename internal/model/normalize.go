@@ -16,6 +16,19 @@ func NormalizePowerTransition(previous, current DeviceSnapshot) []Event {
 		Source:     SourceSetupAPIPoll,
 		Confidence: ConfidenceMedium,
 		Device:     current,
+		Raw: map[string]string{
+			"previous_power_state": string(previous.PowerState),
+			"current_power_state":  string(current.PowerState),
+		},
+	}
+	for key, value := range DeviceEvidenceRaw(current) {
+		base.Raw[key] = value
+	}
+	if previous.PowerStateEvidence != "" {
+		base.Raw["previous_power_state_evidence"] = previous.PowerStateEvidence
+	}
+	if previous.PowerDataHex != "" {
+		base.Raw["previous_power_data_hex"] = previous.PowerDataHex
 	}
 
 	if previous.PowerState == current.PowerState || current.PowerState == PowerUnknown {

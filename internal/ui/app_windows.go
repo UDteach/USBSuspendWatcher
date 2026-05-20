@@ -73,9 +73,10 @@ type app struct {
 	wndProc    uintptr
 	oldWndProc uintptr
 
-	etwRunning  bool
-	etwStopFile string
-	mu          sync.Mutex
+	etwRunning     bool
+	etwStopFile    string
+	etwHelperAdmin *bool
+	mu             sync.Mutex
 
 	selectionChanging bool
 	localizing        bool
@@ -202,8 +203,10 @@ func (a *app) createWindow() error {
 									{Title: text.deviceColumnTitles[2], Width: 110},
 									{Title: text.deviceColumnTitles[3], Width: 70},
 									{Title: text.deviceColumnTitles[4], Width: 90},
-									{Title: text.deviceColumnTitles[5], Width: 160},
-									{Title: text.deviceColumnTitles[6], Width: 115},
+									{Title: text.deviceColumnTitles[5], Width: 85},
+									{Title: text.deviceColumnTitles[6], Width: 160},
+									{Title: text.deviceColumnTitles[7], Width: 115},
+									{Title: text.deviceColumnTitles[8], Width: 115},
 								},
 								Model: a.devices,
 								OnSelectedIndexesChanged: func() {
@@ -338,6 +341,9 @@ func (a *app) installWndProc() {
 		if msg == win.WM_DEVICECHANGE {
 			a.handleDeviceChange(wParam)
 		}
+		if msg == win.WM_POWERBROADCAST {
+			a.handlePowerBroadcast(wParam)
+		}
 		if a.oldWndProc == 0 {
 			return win.DefWindowProc(hwnd, msg, wParam, lParam)
 		}
@@ -438,7 +444,7 @@ func (a *app) updateDetails() {
 	}
 	if idx := selectedIndex(a.deviceView); idx >= 0 {
 		if device, ok := a.devices.Item(idx); ok {
-			a.details.SetText(formatDevice(device, a.language, a.devices.IsMonitored(device)))
+			a.details.SetText(formatDevice(device, a.language, a.devices.IsMonitored(device), a.events.DeviceHistory(device, 20)))
 			return
 		}
 	}
@@ -465,6 +471,13 @@ func (a *app) updateStatus(text string) {
 	admin := strings.standardUser
 	if platform.IsAdmin() {
 		admin = strings.administrator
+	}
+	if a.etwHelperAdmin != nil {
+		helper := strings.standardUser
+		if *a.etwHelperAdmin {
+			helper = strings.administrator
+		}
+		admin += " | ETW helper: " + helper
 	}
 	status := localizeStatus(text, a.language)
 	if a.etwRunning {
@@ -682,8 +695,48 @@ func (a *app) handleDeviceChange(wParam uintptr) {
 		Source:     model.SourceDeviceChange,
 		Confidence: model.ConfidenceMedium,
 		Message:    msg,
+		Raw:        map[string]string{"wparam": fmt.Sprintf("0x%X", wParam)},
 	}, true)
 	a.poller.RefreshNow()
+}
+
+func (a *app) handlePowerBroadcast(wParam uintptr) {
+	const (
+		pbtAPMSuspend           = 0x0004
+		pbtAPMResumeSuspend     = 0x0007
+		pbtAPMPowerStatusChange = 0x000A
+		pbtAPMResumeAutomatic   = 0x0012
+	)
+	eventType := model.EventInfo
+	confidence := model.ConfidenceMedium
+	msg := fmt.Sprintf("WM_POWERBROADCAST: 0x%X", wParam)
+	switch uint32(wParam) {
+	case pbtAPMSuspend:
+		eventType = model.EventSystemSleep
+		confidence = model.ConfidenceHigh
+		msg = "WM_POWERBROADCAST: system is suspending"
+	case pbtAPMResumeSuspend:
+		eventType = model.EventSystemWake
+		confidence = model.ConfidenceHigh
+		msg = "WM_POWERBROADCAST: system resumed after user-visible suspend"
+	case pbtAPMResumeAutomatic:
+		eventType = model.EventSystemWake
+		confidence = model.ConfidenceHigh
+		msg = "WM_POWERBROADCAST: system resumed automatically"
+	case pbtAPMPowerStatusChange:
+		msg = "WM_POWERBROADCAST: power status changed"
+	}
+	a.addEvent(model.Event{
+		Time:       time.Now(),
+		Type:       eventType,
+		Source:     model.SourcePowerBroadcast,
+		Confidence: confidence,
+		Message:    msg,
+		Raw:        map[string]string{"wparam": fmt.Sprintf("0x%X", wParam)},
+	}, true)
+	if eventType == model.EventSystemWake {
+		a.poller.RefreshNow()
+	}
 }
 
 func (a *app) startETW() {
@@ -722,6 +775,7 @@ func (a *app) startETW() {
 	}
 	a.etwRunning = true
 	a.etwStopFile = stopFile
+	a.etwHelperAdmin = nil
 	tailCtx, cancel := context.WithCancel(a.ctx)
 	a.tailCancel = cancel
 	a.mu.Unlock()
@@ -785,6 +839,7 @@ func (a *app) tailETWLog(ctx context.Context, path string, offset int64) {
 				for _, event := range events {
 					if isETWHelperStartupEvent(event) {
 						startupSeen = true
+						a.captureETWHelperPrivilege(event)
 					}
 					if isTerminalETWHelperEvent(event) {
 						terminal = true
@@ -849,6 +904,15 @@ func (a *app) clearETWRunning() {
 	a.etwStopFile = ""
 	a.tailCancel = nil
 	a.mu.Unlock()
+}
+
+func (a *app) captureETWHelperPrivilege(event model.Event) {
+	value, ok := event.Raw["helper_admin"]
+	if !ok {
+		return
+	}
+	admin := strings.EqualFold(value, "true") || value == "1"
+	a.etwHelperAdmin = &admin
 }
 
 func isETWHelperStartupEvent(event model.Event) bool {

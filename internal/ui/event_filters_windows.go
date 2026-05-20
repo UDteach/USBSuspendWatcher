@@ -87,6 +87,8 @@ func eventIsImportant(event model.Event) bool {
 		model.EventIdleNotification,
 		model.EventResume,
 		model.EventPowerD0Entry,
+		model.EventSystemSleep,
+		model.EventSystemWake,
 		model.EventError:
 		return true
 	default:
@@ -105,11 +107,17 @@ func eventSearchText(event model.Event) string {
 		event.Device.InstanceID,
 		event.Device.HardwareID,
 		event.Device.VIDPID(),
+		event.Device.COMPort,
 		event.Device.Location,
+		strings.Join(event.Device.LocationPaths, " "),
 		event.Device.Manufacturer,
 		event.Device.Service,
 		event.Device.Class,
 		event.Device.Enumerator,
+		event.Device.Serial,
+		event.Device.ParentInstanceID,
+		strings.Join(event.Device.ParentChain, " "),
+		event.Device.PowerStateEvidence,
 	}
 	if len(event.Raw) > 0 {
 		keys := make([]string, 0, len(event.Raw))
@@ -131,6 +139,10 @@ func eventMark(event model.Event, language displayLanguage) string {
 		return text.markSuspend
 	case model.EventResume, model.EventPowerD0Entry:
 		return text.markResume
+	case model.EventSystemSleep:
+		return "Sleep"
+	case model.EventSystemWake:
+		return "Wake"
 	case model.EventError:
 		return text.markError
 	case model.EventPnPArrival:

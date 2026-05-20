@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -156,7 +158,11 @@ func deviceCurrentState(device model.DeviceSnapshot, monitored bool, language di
 	}
 	switch {
 	case device.PowerState == model.PowerD0:
-		return text.deviceStateActive + " (D0)"
+		state := text.deviceStateActive + " (D0)"
+		if device.ParentLowPowerChildD0 {
+			state += " | Parent D3"
+		}
+		return state
 	case model.IsLowPowerState(device.PowerState):
 		return text.deviceStateLowPower + " (" + string(device.PowerState) + ")"
 	case device.PowerState == "" || device.PowerState == model.PowerUnknown:
@@ -164,6 +170,119 @@ func deviceCurrentState(device model.DeviceSnapshot, monitored bool, language di
 	default:
 		return string(device.PowerState)
 	}
+}
+
+type adapterGroup struct {
+	Name      string
+	Score     int
+	Reasons   string
+	Port      string
+	Converter string
+	Parent    string
+}
+
+type adapterGroupTableModel struct {
+	walk.TableModelBase
+	items []adapterGroup
+}
+
+func newAdapterGroupTableModel() *adapterGroupTableModel {
+	return &adapterGroupTableModel{}
+}
+
+func (m *adapterGroupTableModel) RowCount() int {
+	return len(m.items)
+}
+
+func (m *adapterGroupTableModel) Value(row, col int) interface{} {
+	g := m.items[row]
+	switch col {
+	case 0:
+		return g.Name
+	case 1:
+		if g.Score <= 0 {
+			return "no same-device evidence"
+		}
+		if g.Reasons == "" {
+			return fmt.Sprintf("%d%%", g.Score)
+		}
+		return fmt.Sprintf("%d%% | %s", g.Score, g.Reasons)
+	case 2:
+		return g.Port
+	case 3:
+		return g.Converter
+	case 4:
+		return g.Parent
+	default:
+		return ""
+	}
+}
+
+func (m *adapterGroupTableModel) Set(devices []model.DeviceSnapshot) {
+	m.items = buildAdapterGroups(devices)
+	m.PublishRowsReset()
+}
+
+func buildAdapterGroups(devices []model.DeviceSnapshot) []adapterGroup {
+	byGroup := make(map[string]*adapterGroup)
+	order := make([]string, 0)
+	for _, device := range devices {
+		key := strings.TrimSpace(device.LogicalGroupID)
+		if key == "" {
+			key = "single:" + strings.ToLower(device.InstanceID)
+		}
+		group, ok := byGroup[key]
+		if !ok {
+			name := device.GroupDisplayName
+			if name == "" {
+				name = device.DisplayName()
+			}
+			group = &adapterGroup{Name: name, Score: device.DiagnosticScore, Reasons: strings.Join(device.DiagnosticReasons, " | ")}
+			byGroup[key] = group
+			order = append(order, key)
+		}
+		if device.DiagnosticScore > group.Score {
+			group.Score = device.DiagnosticScore
+			group.Reasons = strings.Join(device.DiagnosticReasons, " | ")
+		}
+		if device.ParentInstanceID != "" && group.Parent == "" {
+			group.Parent = device.ParentInstanceID
+		}
+		switch device.RelationRole {
+		case "port":
+			group.Port = compactGroupMember(group.Port, device.DisplayName())
+		case "converter":
+			group.Converter = compactGroupMember(group.Converter, device.DisplayName())
+		default:
+			if device.COMPort != "" {
+				group.Port = compactGroupMember(group.Port, device.DisplayName())
+			} else {
+				group.Converter = compactGroupMember(group.Converter, device.DisplayName())
+			}
+		}
+	}
+	out := make([]adapterGroup, 0, len(order))
+	for _, key := range order {
+		out = append(out, *byGroup[key])
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out
+}
+
+func compactGroupMember(existing, next string) string {
+	next = strings.TrimSpace(next)
+	if next == "" {
+		return existing
+	}
+	if existing == "" {
+		return next
+	}
+	if strings.Contains(existing, next) {
+		return existing
+	}
+	return existing + " | " + next
 }
 
 func hasDeviceIdentity(device model.DeviceSnapshot) bool {
@@ -277,6 +396,12 @@ func (m *eventTableModel) Add(event model.Event) {
 	if m.limit > 0 && len(m.items) > m.limit {
 		m.items = m.items[len(m.items)-m.limit:]
 	}
+	m.visible = filterEvents(m.items, m.filter)
+	m.PublishRowsReset()
+}
+
+func (m *eventTableModel) Set(events []model.Event) {
+	m.items = append([]model.Event(nil), events...)
 	m.visible = filterEvents(m.items, m.filter)
 	m.PublishRowsReset()
 }

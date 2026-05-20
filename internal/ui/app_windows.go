@@ -39,12 +39,19 @@ type app struct {
 	languageCombo    *walk.ComboBox
 	statusGroup      *walk.GroupBox
 	deviceView       *walk.TableView
+	groupView        *walk.TableView
 	usbChangeView    *walk.TableView
 	eventView        *walk.TableView
+	sequenceView     *walk.TableView
 	details          *walk.TextEdit
+	rawDetails       *walk.TextEdit
 	devicesLabel     *walk.Label
+	groupsLabel      *walk.Label
 	usbChangesLabel  *walk.Label
 	timelineLabel    *walk.Label
+	sequenceLabel    *walk.Label
+	detailsLabel     *walk.Label
+	rawDetailsLabel  *walk.Label
 	typeLabel        *walk.Label
 	targetLabel      *walk.Label
 	confidenceLabel  *walk.Label
@@ -64,12 +71,15 @@ type app struct {
 	exitAction       *walk.Action
 	icon             *walk.Icon
 
-	devices    *deviceTableModel
-	events     *eventTableModel
-	usbChanges *eventTableModel
-	poller     *monitor.Poller
-	logger     *logs.EventLogger
-	logDir     string
+	devices        *deviceTableModel
+	groups         *adapterGroupTableModel
+	events         *eventTableModel
+	usbChanges     *eventTableModel
+	sequence       *eventTableModel
+	poller         *monitor.Poller
+	logger         *logs.EventLogger
+	logDir         string
+	sessionStarted time.Time
 
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -102,16 +112,19 @@ func Run(cfg Config) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &app{
-		cfg:        cfg,
-		devices:    newDeviceTableModel(),
-		events:     newEventTableModel(2000),
-		usbChanges: newEventTableModel(500),
-		poller:     monitor.NewPoller(2 * time.Second),
-		logger:     logger,
-		logDir:     logDir,
-		ctx:        ctx,
-		cancel:     cancel,
-		language:   languageJapanese,
+		cfg:            cfg,
+		devices:        newDeviceTableModel(),
+		groups:         newAdapterGroupTableModel(),
+		events:         newEventTableModel(2000),
+		usbChanges:     newEventTableModel(500),
+		sequence:       newEventTableModel(200),
+		poller:         monitor.NewPoller(2 * time.Second),
+		logger:         logger,
+		logDir:         logDir,
+		sessionStarted: time.Now(),
+		ctx:            ctx,
+		cancel:         cancel,
+		language:       languageJapanese,
 	}
 	a.devices.onMonitorChanged = a.onDeviceMonitorChanged
 
@@ -130,11 +143,12 @@ func Run(cfg Config) error {
 	go a.poller.Run(ctx)
 	a.refreshDevices()
 	a.addEvent(model.Event{
-		Time:       time.Now(),
+		Time:       a.sessionStarted,
 		Type:       model.EventInfo,
 		Source:     model.SourceApp,
 		Confidence: model.ConfidenceHigh,
 		Message:    "USB Suspend Watch started",
+		Raw:        map[string]string{"session_started_at": a.sessionStarted.Format(time.RFC3339Nano)},
 	}, true)
 
 	a.updateStatus(statusSimpleMonitorRunning)
@@ -218,6 +232,21 @@ func (a *app) createWindow() error {
 								OnSelectedIndexesChanged: func() {
 									a.onDeviceSelectionChanged()
 								},
+							},
+							d.Label{AssignTo: &a.groupsLabel, Text: text.adapterGroupsTitle},
+							d.TableView{
+								AssignTo:         &a.groupView,
+								AlternatingRowBG: true,
+								ColumnsOrderable: true,
+								MaxSize:          d.Size{Height: 130},
+								Columns: []d.TableViewColumn{
+									{Title: text.groupColumnTitles[0], Width: 170},
+									{Title: text.groupColumnTitles[1], Width: 95},
+									{Title: text.groupColumnTitles[2], Width: 210},
+									{Title: text.groupColumnTitles[3], Width: 210},
+									{Title: text.groupColumnTitles[4], Width: 190},
+								},
+								Model: a.groups,
 							},
 							d.Label{AssignTo: &a.usbChangesLabel, Text: text.usbChangesTitle},
 							d.TableView{
@@ -315,12 +344,57 @@ func (a *app) createWindow() error {
 									},
 								},
 							},
-							d.TextEdit{
-								AssignTo: &a.details,
-								ReadOnly: true,
-								VScroll:  true,
-								HScroll:  true,
-								Text:     text.emptyDetails,
+							d.Composite{
+								Layout: d.VBox{MarginsZero: true},
+								Children: []d.Widget{
+									d.Label{AssignTo: &a.sequenceLabel, Text: text.selectedSequenceTitle},
+									d.TableView{
+										AssignTo:         &a.sequenceView,
+										AlternatingRowBG: true,
+										ColumnsOrderable: true,
+										MaxSize:          d.Size{Height: 150},
+										Columns: []d.TableViewColumn{
+											{Title: text.eventColumnTitles[0], Width: 90},
+											{Title: text.eventColumnTitles[1], Width: 145},
+											{Title: text.eventColumnTitles[2], Width: 125},
+											{Title: text.eventColumnTitles[3], Width: 85},
+											{Title: text.eventColumnTitles[4], Width: 110},
+											{Title: text.eventColumnTitles[5], Width: 210},
+											{Title: text.eventColumnTitles[6], Width: 310},
+										},
+										Model: a.sequence,
+									},
+									d.HSplitter{
+										Children: []d.Widget{
+											d.Composite{
+												Layout: d.VBox{MarginsZero: true},
+												Children: []d.Widget{
+													d.Label{AssignTo: &a.detailsLabel, Text: text.diagnosticDetailsTitle},
+													d.TextEdit{
+														AssignTo: &a.details,
+														ReadOnly: true,
+														VScroll:  true,
+														HScroll:  true,
+														Text:     text.emptyDetails,
+													},
+												},
+											},
+											d.Composite{
+												Layout: d.VBox{MarginsZero: true},
+												Children: []d.Widget{
+													d.Label{AssignTo: &a.rawDetailsLabel, Text: text.rawDetailsTitle},
+													d.TextEdit{
+														AssignTo: &a.rawDetails,
+														ReadOnly: true,
+														VScroll:  true,
+														HScroll:  true,
+														Text:     "{}",
+													},
+												},
+											},
+										},
+									},
+								},
 							},
 						},
 					},
@@ -416,6 +490,9 @@ func (a *app) refreshDevices() {
 		return strings.ToLower(devices[i].DisplayName()) < strings.ToLower(devices[j].DisplayName())
 	})
 	a.devices.Set(devices)
+	if a.groups != nil {
+		a.groups.Set(devices)
+	}
 	a.updateDetails()
 	a.updateStatus(statusSimpleMonitorRunning)
 }
@@ -427,6 +504,7 @@ func (a *app) addEvent(event model.Event, persist bool) {
 	if event.Time.IsZero() {
 		event.Time = time.Now()
 	}
+	event = a.withSessionRaw(event)
 	a.events.Add(event)
 	if a.usbChanges != nil && isUSBChangeTimelineEvent(event) {
 		a.usbChanges.Add(event)
@@ -499,23 +577,72 @@ func (a *app) updateDetails() {
 	}
 	if idx := selectedIndex(a.eventView); idx >= 0 {
 		if event, ok := a.events.Item(idx); ok {
-			a.details.SetText(formatEvent(event, a.language, a.devices.IsMonitored(event.Device), a.events.WakeCorrelation(event.Time, 30*time.Second)))
+			history := a.events.DeviceHistory(event.Device, 100)
+			a.setSelectedSequence(history)
+			a.setDetails(
+				formatEvent(event, a.language, a.devices.IsMonitored(event.Device), a.events.WakeCorrelation(event.Time, 30*time.Second)),
+				formatEventRaw(event),
+			)
 			return
 		}
 	}
 	if idx := selectedIndex(a.usbChangeView); idx >= 0 {
 		if event, ok := a.usbChanges.Item(idx); ok {
-			a.details.SetText(formatEvent(event, a.language, a.devices.IsMonitored(event.Device), a.events.WakeCorrelation(event.Time, 30*time.Second)))
+			history := a.events.DeviceHistory(event.Device, 100)
+			a.setSelectedSequence(history)
+			a.setDetails(
+				formatEvent(event, a.language, a.devices.IsMonitored(event.Device), a.events.WakeCorrelation(event.Time, 30*time.Second)),
+				formatEventRaw(event),
+			)
 			return
 		}
 	}
 	if idx := selectedIndex(a.deviceView); idx >= 0 {
 		if device, ok := a.devices.Item(idx); ok {
-			a.details.SetText(formatDevice(device, a.language, a.devices.IsMonitored(device), a.events.DeviceHistory(device, 20)))
+			history := a.events.DeviceHistory(device, 100)
+			a.setSelectedSequence(history)
+			a.setDetails(
+				formatDevice(device, a.language, a.devices.IsMonitored(device), history),
+				formatDeviceRaw(device, history),
+			)
 			return
 		}
 	}
-	a.details.SetText(a.text().emptyDetails)
+	a.setSelectedSequence(nil)
+	a.setDetails(a.text().emptyDetails, "{}")
+}
+
+func (a *app) setDetails(summary, raw string) {
+	if a.details != nil {
+		a.details.SetText(summary)
+	}
+	if a.rawDetails != nil {
+		a.rawDetails.SetText(raw)
+	}
+}
+
+func (a *app) setSelectedSequence(events []model.Event) {
+	if a.sequence != nil {
+		a.sequence.Set(events)
+	}
+}
+
+func (a *app) withSessionRaw(event model.Event) model.Event {
+	raw := make(map[string]string, len(event.Raw)+8)
+	for key, value := range event.Raw {
+		raw[key] = value
+	}
+	raw["session_started_at"] = a.sessionStarted.Format(time.RFC3339Nano)
+	if hasDeviceIdentity(event.Device) {
+		for key, value := range model.DeviceEvidenceRaw(event.Device) {
+			if _, ok := raw[key]; !ok {
+				raw[key] = value
+			}
+		}
+		raw["diagnostic_summary"] = strings.Join(diagnosticSummary(event.Device, nil), " | ")
+	}
+	event.Raw = raw
+	return event
 }
 
 func selectedIndex(tv *walk.TableView) int {
@@ -677,8 +804,12 @@ func (a *app) applyLanguage() {
 	setButtonText(a.exportButton, text.exportVisibleButton)
 	setLabelText(a.languageLabel, text.languageLabel)
 	setLabelText(a.devicesLabel, text.connectedDevicesTitle)
+	setLabelText(a.groupsLabel, text.adapterGroupsTitle)
 	setLabelText(a.usbChangesLabel, text.usbChangesTitle)
 	setLabelText(a.timelineLabel, text.timelineTitle)
+	setLabelText(a.sequenceLabel, text.selectedSequenceTitle)
+	setLabelText(a.detailsLabel, text.diagnosticDetailsTitle)
+	setLabelText(a.rawDetailsLabel, text.rawDetailsTitle)
 	setLabelText(a.typeLabel, text.typeLabel)
 	setLabelText(a.targetLabel, text.targetLabel)
 	setLabelText(a.confidenceLabel, text.confidenceLabel)
@@ -695,13 +826,21 @@ func (a *app) applyLanguage() {
 		_ = a.eventSearch.SetCueBanner(text.searchCue)
 	}
 	setColumnTitles(a.deviceView, text.deviceColumnTitles)
+	setColumnTitles(a.groupView, text.groupColumnTitles)
 	setColumnTitles(a.eventView, text.eventColumnTitles)
 	setColumnTitles(a.usbChangeView, text.eventColumnTitles)
+	setColumnTitles(a.sequenceView, text.eventColumnTitles)
 	if a.devices != nil {
 		a.devices.SetLanguage(a.language)
 	}
 	if a.events != nil {
 		a.events.SetLanguage(a.language)
+	}
+	if a.usbChanges != nil {
+		a.usbChanges.SetLanguage(a.language)
+	}
+	if a.sequence != nil {
+		a.sequence.SetLanguage(a.language)
 	}
 	if a.showAction != nil {
 		_ = a.showAction.SetText(text.trayShow)
@@ -805,6 +944,7 @@ func (a *app) handlePowerBroadcast(wParam uintptr) {
 	confidence := model.ConfidenceMedium
 	msg := fmt.Sprintf("WM_POWERBROADCAST: 0x%X", wParam)
 	raw := map[string]string{"wparam": fmt.Sprintf("0x%X", wParam)}
+	eventTime := time.Now()
 	switch uint32(wParam) {
 	case pbtAPMSuspend:
 		eventType = model.EventSystemSleep
@@ -822,15 +962,19 @@ func (a *app) handlePowerBroadcast(wParam uintptr) {
 		msg = "WM_POWERBROADCAST: power status changed"
 	}
 	if eventType == model.EventSystemWake {
+		correlation := a.events.WakeCorrelation(eventTime, 30*time.Second)
 		for key, value := range powercfgLastWakeRaw() {
 			raw[key] = value
 		}
-		if correlation := formatEventSequence(a.events.WakeCorrelation(time.Now(), 30*time.Second)); correlation != "" {
-			raw["wake_correlation"] = correlation
+		for key, value := range wakeDiagnosticRaw(raw, correlation) {
+			raw[key] = value
+		}
+		if formatted := formatEventSequence(correlation); formatted != "" {
+			raw["wake_correlation"] = formatted
 		}
 	}
 	a.addEvent(model.Event{
-		Time:       time.Now(),
+		Time:       eventTime,
 		Type:       eventType,
 		Source:     model.SourcePowerBroadcast,
 		Confidence: confidence,
@@ -839,7 +983,7 @@ func (a *app) handlePowerBroadcast(wParam uintptr) {
 	}, true)
 	if eventType == model.EventSystemWake {
 		a.addEvent(model.Event{
-			Time:       time.Now(),
+			Time:       eventTime,
 			Type:       model.EventInfo,
 			Source:     model.SourcePowercfgLastWake,
 			Confidence: model.ConfidenceLow,
@@ -867,6 +1011,29 @@ func powercfgLastWakeRawFromOutput(output []byte, err error) map[string]string {
 		raw["lastwake_error"] = err.Error()
 	}
 	return raw
+}
+
+func wakeDiagnosticRaw(raw map[string]string, correlation []model.Event) map[string]string {
+	out := make(map[string]string, 2)
+	var reasons []string
+	switch {
+	case strings.TrimSpace(raw["lastwake"]) != "":
+		out["wake_confidence"] = "high"
+		reasons = append(reasons, "powercfg /lastwake returned wake source")
+	case len(correlation) > 0:
+		out["wake_confidence"] = "medium"
+		reasons = append(reasons, "USB/PnP/D0/D3 event within 30 seconds of wake")
+	case strings.TrimSpace(raw["lastwake_error"]) != "":
+		out["wake_confidence"] = "unknown"
+		reasons = append(reasons, "powercfg /lastwake unavailable: "+raw["lastwake_error"])
+	default:
+		out["wake_confidence"] = "low"
+		reasons = append(reasons, "no wake source and no nearby USB change")
+	}
+	if len(reasons) > 0 {
+		out["wake_reasons"] = strings.Join(reasons, " | ")
+	}
+	return out
 }
 
 func (a *app) startETW() {

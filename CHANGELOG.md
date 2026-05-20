@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.8.2
+
+- Added diagnostic scores and reasons for USB Serial Port / USB Serial Converter same-device candidates: serial match is 90%, parent-instance match is 70%, location-path match is 60%, and VID/PID-only remains 0%.
+- Split the main UI into current connected devices, FTDI adapter groups, USB changes, full timeline, selected-device sequence, diagnostic summary, and pretty raw JSON evidence.
+- Added `Parent D3` warning marks when a child reports D0 while a parent/hub reports D1/D2/D3.
+- Added wake confidence and reasons to wake raw data using `powercfg /lastwake` and nearby USB/PnP/D0/D3 events.
+- Added session-start metadata and clearer wording that historical transitions are only those observed after the app starts.
+- Expanded raw JSON with additive keys such as `diagnostic_score`, `diagnostic_reasons`, `group_display_name`, `session_observed`, `session_started_at`, and `diagnostic_summary`.
+- Added tests for diagnostic scoring, FTDI adapter grouping, wake confidence, pretty raw JSON, parent warning marks, session raw metadata, and selected-device sequence data.
+
 ## v0.8.1
 
 - Added an `All USB` / `FTDI COM only` target filter. The default focuses the device list and event timeline on FTDI-style COM-port devices and their related converter nodes.

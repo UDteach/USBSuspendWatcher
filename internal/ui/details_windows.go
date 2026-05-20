@@ -1,8 +1,8 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -17,6 +17,7 @@ func formatDevice(d model.DeviceSnapshot, language displayLanguage, monitored bo
 	}
 	lines := []string{
 		text.deviceDetailsTitle,
+		"Diagnostic summary: " + strings.Join(diagnosticSummary(d, history), " | "),
 		text.deviceMonitoring + ": " + monitoring,
 		text.deviceState + ": " + deviceCurrentState(d, monitored, language),
 		text.deviceName + ": " + d.DisplayName(),
@@ -31,6 +32,7 @@ func formatDevice(d model.DeviceSnapshot, language displayLanguage, monitored bo
 		"Relation role: " + d.RelationRole,
 		"Logical group: " + d.LogicalGroupID,
 		"Logical group reason: " + d.LogicalGroupReason,
+		"Same-device candidate: " + formatDiagnosticScore(d),
 		"Related instance IDs: " + strings.Join(d.RelatedInstanceIDs, " | "),
 		text.devicePowerState + ": " + string(d.PowerState),
 		"Power evidence: " + d.PowerStateEvidence,
@@ -78,17 +80,6 @@ func formatEvent(e model.Event, language displayLanguage, monitored bool, wakeCo
 		"",
 		formatDevice(e.Device, language, monitored, nil),
 	}
-	if len(e.Raw) > 0 {
-		lines = append(lines, "", text.rawETWProperties+":")
-		keys := make([]string, 0, len(e.Raw))
-		for key := range e.Raw {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			lines = append(lines, key+": "+e.Raw[key])
-		}
-	}
 	if len(wakeCorrelation) > 0 && (e.Type == model.EventSystemWake || e.Type == model.EventSystemSleep) {
 		lines = append(lines, "", "Wake correlation:")
 		for _, event := range wakeCorrelation {
@@ -96,6 +87,103 @@ func formatEvent(e model.Event, language displayLanguage, monitored bool, wakeCo
 		}
 	}
 	return strings.Join(lines, "\r\n")
+}
+
+func formatDeviceRaw(d model.DeviceSnapshot, history []model.Event) string {
+	raw := model.DeviceEvidenceRaw(d)
+	if summary := strings.Join(diagnosticSummary(d, history), " | "); summary != "" {
+		raw["diagnostic_summary"] = summary
+	}
+	return formatPrettyJSON(raw)
+}
+
+func formatEventRaw(e model.Event) string {
+	return formatPrettyJSON(e)
+}
+
+func formatPrettyJSON(v interface{}) string {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("failed to format raw JSON: %v", err)
+	}
+	return string(data)
+}
+
+func diagnosticSummary(d model.DeviceSnapshot, history []model.Event) []string {
+	var lines []string
+	name := d.COMPort
+	if name == "" {
+		name = d.DisplayName()
+	}
+	if !d.ConnectedAt.IsZero() {
+		lines = append(lines, fmt.Sprintf("%s connected at %s", name, d.ConnectedAt.Format("15:04:05")))
+	}
+	if d.PowerState != "" && d.PowerState != model.PowerUnknown {
+		lines = append(lines, fmt.Sprintf("%s reports %s from %s", name, d.PowerState, emptyAsUnknown(d.PowerStateEvidence)))
+	}
+	if d.DiagnosticScore > 0 {
+		lines = append(lines, fmt.Sprintf("same-device candidate %d%%: %s", d.DiagnosticScore, strings.Join(d.DiagnosticReasons, ", ")))
+	} else if d.LogicalGroupReason != "" {
+		lines = append(lines, "same-device candidate has no evidence: "+d.LogicalGroupReason)
+	}
+	if d.ParentLowPowerChildD0 {
+		lines = append(lines, "parent hub/device was low-power while child reported D0")
+	} else if hasUnknownParentState(d.ParentStates) {
+		lines = append(lines, "parent state includes unknown entries")
+	}
+	if wake := latestWakeSummary(history); wake != "" {
+		lines = append(lines, wake)
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "no session transition evidence selected")
+	}
+	return lines
+}
+
+func formatDiagnosticScore(d model.DeviceSnapshot) string {
+	reasons := strings.Join(d.DiagnosticReasons, " | ")
+	if d.DiagnosticScore <= 0 {
+		if reasons == "" {
+			reasons = "no same-device evidence"
+		}
+		return "0% | " + reasons
+	}
+	return fmt.Sprintf("%d%% | %s", d.DiagnosticScore, reasons)
+}
+
+func emptyAsUnknown(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "unknown evidence"
+	}
+	return value
+}
+
+func hasUnknownParentState(states []model.ParentDeviceState) bool {
+	for _, state := range states {
+		if state.PowerState == model.PowerUnknown {
+			return true
+		}
+	}
+	return false
+}
+
+func latestWakeSummary(history []model.Event) string {
+	for i := len(history) - 1; i >= 0; i-- {
+		event := history[i]
+		if event.Type != model.EventSystemWake {
+			continue
+		}
+		confidence := event.Raw["wake_confidence"]
+		if confidence == "" {
+			confidence = "unknown"
+		}
+		reasons := event.Raw["wake_reasons"]
+		if reasons != "" {
+			return "wake source confidence " + confidence + ": " + reasons
+		}
+		return "wake source confidence " + confidence
+	}
+	return ""
 }
 
 func formatParentStates(states []model.ParentDeviceState) string {

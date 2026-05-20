@@ -51,6 +51,12 @@ func TestEnrichDeviceRelationshipsGroupsPortAndConverterBySerial(t *testing.T) {
 	if len(devices[0].RelatedInstanceIDs) != 1 || len(devices[1].RelatedInstanceIDs) != 1 {
 		t.Fatalf("related instance ids should be populated: %#v", devices)
 	}
+	if devices[0].DiagnosticScore != 90 || devices[1].DiagnosticScore != 90 {
+		t.Fatalf("serial match should be high score: %#v", devices)
+	}
+	if devices[0].GroupDisplayName != "FTDI Adapter FT123" {
+		t.Fatalf("group display name = %q, want FTDI Adapter FT123", devices[0].GroupDisplayName)
+	}
 }
 
 func TestPopulateUSBIDsExtractsFTDISerialBeforeChildSuffix(t *testing.T) {
@@ -71,6 +77,9 @@ func TestEnrichDeviceRelationshipsDoesNotGroupByVIDPIDOnly(t *testing.T) {
 
 	if devices[0].LogicalGroupID != "" || devices[1].LogicalGroupID != "" {
 		t.Fatalf("VID/PID only must not create logical groups: %#v", devices)
+	}
+	if devices[0].DiagnosticScore != 0 || devices[1].DiagnosticScore != 0 {
+		t.Fatalf("VID/PID only must not create confidence score: %#v", devices)
 	}
 }
 

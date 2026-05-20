@@ -35,21 +35,26 @@ type uiStrings struct {
 	summaryFormat         string
 	logPrefix             string
 
-	connectedDevicesTitle string
-	usbChangesTitle       string
-	timelineTitle         string
-	typeLabel             string
-	targetLabel           string
-	confidenceLabel       string
-	levelLabel            string
-	searchCue             string
-	typeOptions           []string
-	targetOptions         []string
-	confidenceOptions     []string
-	levelOptions          []string
-	deviceColumnTitles    []string
-	eventColumnTitles     []string
-	emptyDetails          string
+	connectedDevicesTitle  string
+	adapterGroupsTitle     string
+	usbChangesTitle        string
+	timelineTitle          string
+	selectedSequenceTitle  string
+	diagnosticDetailsTitle string
+	rawDetailsTitle        string
+	typeLabel              string
+	targetLabel            string
+	confidenceLabel        string
+	levelLabel             string
+	searchCue              string
+	typeOptions            []string
+	targetOptions          []string
+	confidenceOptions      []string
+	levelOptions           []string
+	deviceColumnTitles     []string
+	groupColumnTitles      []string
+	eventColumnTitles      []string
+	emptyDetails           string
 
 	deviceDetailsTitle       string
 	deviceMonitoring         string
@@ -133,21 +138,26 @@ func japaneseStrings() uiStrings {
 		summaryFormat:         "USB: %d | 監視: %d | 低電力: %d | Suspend疑い: %d | Resume: %d | 表示: %d",
 		logPrefix:             "ログ",
 
-		connectedDevicesTitle: "接続中USB",
-		usbChangesTitle:       "USB変化 / 遷移",
-		timelineTitle:         "Suspend / Resume タイムライン",
-		typeLabel:             "種別",
-		targetLabel:           "対象",
-		confidenceLabel:       "信頼度",
-		levelLabel:            "表示レベル",
-		searchCue:             "デバイス名、VID/PID、Instance ID、メッセージを検索",
-		typeOptions:           []string{"すべて", "Suspend疑い", "Resume", "PnP", "エラー"},
-		targetOptions:         []string{"All USB", "FTDI COM only"},
-		confidenceOptions:     []string{"すべて", "High+Medium", "High only"},
-		levelOptions:          []string{"Info以外", "重要のみ", "すべて"},
-		deviceColumnTitles:    []string{"監視・名前", "状態", "VID/PID", "電源", "列挙子", "COM", "場所", "接続時刻", "最終確認"},
-		eventColumnTitles:     []string{"重要", "時刻", "イベント", "信頼度", "ソース", "デバイス", "メッセージ"},
-		emptyDetails:          "デバイスまたはイベントを選択してください。",
+		connectedDevicesTitle:  "接続中USB",
+		adapterGroupsTitle:     "FTDI adapter groups",
+		usbChangesTitle:        "USB変化 / 遷移",
+		timelineTitle:          "Suspend / Resume タイムライン",
+		selectedSequenceTitle:  "Selected device sequence",
+		diagnosticDetailsTitle: "Diagnostic summary",
+		rawDetailsTitle:        "Raw JSON evidence",
+		typeLabel:              "種別",
+		targetLabel:            "対象",
+		confidenceLabel:        "信頼度",
+		levelLabel:             "表示レベル",
+		searchCue:              "デバイス名、VID/PID、Instance ID、メッセージを検索",
+		typeOptions:            []string{"すべて", "Suspend疑い", "Resume", "PnP", "エラー"},
+		targetOptions:          []string{"All USB", "FTDI COM only"},
+		confidenceOptions:      []string{"すべて", "High+Medium", "High only"},
+		levelOptions:           []string{"Info以外", "重要のみ", "すべて"},
+		deviceColumnTitles:     []string{"監視・名前", "状態", "VID/PID", "電源", "列挙子", "COM", "場所", "接続時刻", "最終確認"},
+		groupColumnTitles:      []string{"Group", "Score", "Port", "Converter", "Parent"},
+		eventColumnTitles:      []string{"重要", "時刻", "イベント", "信頼度", "ソース", "デバイス", "メッセージ"},
+		emptyDetails:           "デバイスまたはイベントを選択してください。",
 
 		deviceDetailsTitle:       "デバイス",
 		deviceMonitoring:         "監視",
@@ -218,21 +228,26 @@ func englishStrings() uiStrings {
 		summaryFormat:         "USB: %d | Monitored: %d | Low power: %d | Suspected: %d | Resume: %d | Visible: %d",
 		logPrefix:             "Log",
 
-		connectedDevicesTitle: "Connected USB devices",
-		usbChangesTitle:       "USB changes / transitions",
-		timelineTitle:         "Suspend / Resume timeline",
-		typeLabel:             "Type",
-		targetLabel:           "Target",
-		confidenceLabel:       "Confidence",
-		levelLabel:            "Level",
-		searchCue:             "Search device, VID/PID, Instance ID, message",
-		typeOptions:           []string{"All", "Suspected suspend", "Resume", "PnP", "Error"},
-		targetOptions:         []string{"All USB", "FTDI COM only"},
-		confidenceOptions:     []string{"All", "High+Medium", "High only"},
-		levelOptions:          []string{"No info", "Important only", "All"},
-		deviceColumnTitles:    []string{"Monitor / Name", "State", "VID/PID", "Power", "Enumerator", "COM", "Location", "Connected", "Last seen"},
-		eventColumnTitles:     []string{"Mark", "Time", "Event", "Confidence", "Source", "Device", "Message"},
-		emptyDetails:          "Select a device or event to inspect details.",
+		connectedDevicesTitle:  "Connected USB devices",
+		adapterGroupsTitle:     "FTDI adapter groups",
+		usbChangesTitle:        "USB changes / transitions",
+		timelineTitle:          "Suspend / Resume timeline",
+		selectedSequenceTitle:  "Selected device sequence",
+		diagnosticDetailsTitle: "Diagnostic summary",
+		rawDetailsTitle:        "Raw JSON evidence",
+		typeLabel:              "Type",
+		targetLabel:            "Target",
+		confidenceLabel:        "Confidence",
+		levelLabel:             "Level",
+		searchCue:              "Search device, VID/PID, Instance ID, message",
+		typeOptions:            []string{"All", "Suspected suspend", "Resume", "PnP", "Error"},
+		targetOptions:          []string{"All USB", "FTDI COM only"},
+		confidenceOptions:      []string{"All", "High+Medium", "High only"},
+		levelOptions:           []string{"No info", "Important only", "All"},
+		deviceColumnTitles:     []string{"Monitor / Name", "State", "VID/PID", "Power", "Enumerator", "COM", "Location", "Connected", "Last seen"},
+		groupColumnTitles:      []string{"Group", "Score", "Port", "Converter", "Parent"},
+		eventColumnTitles:      []string{"Mark", "Time", "Event", "Confidence", "Source", "Device", "Message"},
+		emptyDetails:           "Select a device or event to inspect details.",
 
 		deviceDetailsTitle:       "Device",
 		deviceMonitoring:         "Monitoring",

@@ -147,6 +147,8 @@ func eventSearchText(event model.Event) string {
 		event.Device.COMPort,
 		event.Device.LogicalGroupID,
 		event.Device.LogicalGroupReason,
+		event.Device.GroupDisplayName,
+		strings.Join(event.Device.DiagnosticReasons, " "),
 		event.Device.RelationRole,
 		strings.Join(event.Device.RelatedInstanceIDs, " "),
 		event.Device.Location,
@@ -176,21 +178,30 @@ func eventSearchText(event model.Event) string {
 
 func eventMark(event model.Event, language displayLanguage) string {
 	text := stringsFor(language)
+	if event.Device.ParentLowPowerChildD0 {
+		return "Parent D3"
+	}
 	switch event.Type {
 	case model.EventSuspectSuspend, model.EventPowerD0Exit, model.EventIdleNotification:
+		if event.Type == model.EventPowerD0Exit {
+			return "low-power"
+		}
 		return text.markSuspend
 	case model.EventResume, model.EventPowerD0Entry:
+		if event.Type == model.EventPowerD0Entry {
+			return "active"
+		}
 		return text.markResume
 	case model.EventSystemSleep:
-		return "Sleep"
+		return "power sleep"
 	case model.EventSystemWake:
-		return "Wake"
+		return "power wake"
 	case model.EventError:
 		return text.markError
 	case model.EventPnPArrival:
-		return text.markPnPArrival
+		return "plug"
 	case model.EventPnPRemoval:
-		return text.markPnPRemoval
+		return "unplug"
 	default:
 		return ""
 	}

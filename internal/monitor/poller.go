@@ -100,6 +100,7 @@ func (p *Poller) scan(emit bool) {
 
 	current := make(map[string]model.DeviceSnapshot, len(devices))
 	for i, d := range devices {
+		d.SessionObserved = true
 		if old, ok := prev[d.InstanceID]; ok {
 			d.ConnectedAt = old.ConnectedAt
 			d.LastChanged = old.LastChanged
@@ -155,6 +156,7 @@ func (p *Poller) scan(emit bool) {
 			continue
 		}
 		old.Present = false
+		old.SessionObserved = true
 		old.LastSeen = time.Now()
 		p.send(model.Event{
 			Time:       old.LastSeen,

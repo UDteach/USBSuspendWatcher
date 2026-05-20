@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -185,11 +186,11 @@ func TestEventMark(t *testing.T) {
 		en string
 	}{
 		model.EventSuspectSuspend: {ja: "! Suspend", en: "! Suspend"},
-		model.EventPowerD0Exit:    {ja: "! Suspend", en: "! Suspend"},
+		model.EventPowerD0Exit:    {ja: "low-power", en: "low-power"},
 		model.EventResume:         {ja: "Resume", en: "Resume"},
 		model.EventError:          {ja: "エラー", en: "Error"},
-		model.EventPnPArrival:     {ja: "PnP +", en: "PnP +"},
-		model.EventPnPRemoval:     {ja: "PnP -", en: "PnP -"},
+		model.EventPnPArrival:     {ja: "plug", en: "plug"},
+		model.EventPnPRemoval:     {ja: "unplug", en: "unplug"},
 		model.EventInfo:           {ja: "", en: ""},
 	}
 
@@ -200,6 +201,107 @@ func TestEventMark(t *testing.T) {
 		if got := eventMark(model.Event{Type: typ}, languageEnglish); got != want.en {
 			t.Fatalf("eventMark(%s, en) = %q, want %q", typ, got, want.en)
 		}
+	}
+}
+
+func TestEventMarkParentLowPowerWarning(t *testing.T) {
+	got := eventMark(model.Event{
+		Type: model.EventPowerD0Entry,
+		Device: model.DeviceSnapshot{
+			ParentLowPowerChildD0: true,
+		},
+	}, languageEnglish)
+	if got != "Parent D3" {
+		t.Fatalf("parent low-power mark = %q, want Parent D3", got)
+	}
+}
+
+func TestWakeDiagnosticRawConfidence(t *testing.T) {
+	got := wakeDiagnosticRaw(map[string]string{"lastwake": "USB xHCI Host Controller"}, nil)
+	if got["wake_confidence"] != "high" || !strings.Contains(got["wake_reasons"], "lastwake") {
+		t.Fatalf("lastwake should produce high confidence: %#v", got)
+	}
+
+	got = wakeDiagnosticRaw(map[string]string{"lastwake_source": "powercfg_lastwake"}, []model.Event{{Type: model.EventPnPArrival}})
+	if got["wake_confidence"] != "medium" {
+		t.Fatalf("nearby USB event should produce medium confidence: %#v", got)
+	}
+
+	got = wakeDiagnosticRaw(map[string]string{"lastwake_error": "failed"}, nil)
+	if got["wake_confidence"] != "unknown" {
+		t.Fatalf("lastwake error should produce unknown confidence: %#v", got)
+	}
+}
+
+func TestFormatPrettyJSON(t *testing.T) {
+	got := formatPrettyJSON(map[string]string{"power_state_evidence": "SPDRP_DEVICE_POWER_DATA"})
+	if !strings.Contains(got, "\n") || !strings.Contains(got, "SPDRP_DEVICE_POWER_DATA") {
+		t.Fatalf("pretty JSON not formatted as expected: %q", got)
+	}
+}
+
+func TestWithSessionRawAddsSessionAndDiagnosticSummary(t *testing.T) {
+	started := time.Unix(100, 0)
+	a := &app{sessionStarted: started}
+	event := a.withSessionRaw(model.Event{
+		Type: model.EventPnPArrival,
+		Device: model.DeviceSnapshot{
+			FriendlyName:       "USB Serial Port",
+			VID:                "0403",
+			PID:                "6001",
+			COMPort:            "COM52",
+			LogicalGroupReason: "VID/PID only is not enough",
+		},
+	})
+	if event.Raw["session_started_at"] == "" {
+		t.Fatalf("session_started_at missing: %#v", event.Raw)
+	}
+	if event.Raw["diagnostic_summary"] == "" {
+		t.Fatalf("diagnostic summary missing: %#v", event.Raw)
+	}
+}
+
+func TestAdapterGroupsCombinePortAndConverter(t *testing.T) {
+	devices := []model.DeviceSnapshot{
+		{
+			GroupDisplayName:  "FTDI Adapter FT123",
+			LogicalGroupID:    "vidpid-serial:0403:6001:FT123",
+			DiagnosticScore:   90,
+			DiagnosticReasons: []string{"serial match candidate"},
+			RelationRole:      "port",
+			FriendlyName:      "USB Serial Port",
+			COMPort:           "COM52",
+			ParentInstanceID:  `USB\ROOT_HUB30\1`,
+		},
+		{
+			GroupDisplayName:  "FTDI Adapter FT123",
+			LogicalGroupID:    "vidpid-serial:0403:6001:FT123",
+			DiagnosticScore:   90,
+			DiagnosticReasons: []string{"serial match candidate"},
+			RelationRole:      "converter",
+			FriendlyName:      "USB Serial Converter",
+		},
+	}
+	groups := buildAdapterGroups(devices)
+	if len(groups) != 1 {
+		t.Fatalf("group count = %d, want 1: %#v", len(groups), groups)
+	}
+	if groups[0].Score != 90 || !strings.Contains(groups[0].Port, "COM52") || !strings.Contains(groups[0].Converter, "Converter") {
+		t.Fatalf("unexpected group summary: %#v", groups[0])
+	}
+}
+
+func TestEventTableSetSelectedSequenceChronological(t *testing.T) {
+	m := newEventTableModel(10)
+	m.Set([]model.Event{
+		{Time: time.Unix(2, 0), Type: model.EventPowerD0Entry},
+		{Time: time.Unix(1, 0), Type: model.EventPowerD0Exit},
+	})
+	if m.RowCount() != 2 {
+		t.Fatalf("sequence row count = %d, want 2", m.RowCount())
+	}
+	if first, ok := m.Item(0); !ok || first.Type != model.EventPowerD0Entry {
+		t.Fatalf("sequence table should preserve supplied order, got %#v", first)
 	}
 }
 

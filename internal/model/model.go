@@ -73,6 +73,10 @@ type DeviceSnapshot struct {
 	ParentLowPowerChildD0    bool                `json:"parent_low_power_child_d0,omitempty"`
 	LogicalGroupID           string              `json:"logical_group_id,omitempty"`
 	LogicalGroupReason       string              `json:"logical_group_reason,omitempty"`
+	DiagnosticScore          int                 `json:"diagnostic_score,omitempty"`
+	DiagnosticReasons        []string            `json:"diagnostic_reasons,omitempty"`
+	GroupDisplayName         string              `json:"group_display_name,omitempty"`
+	SessionObserved          bool                `json:"session_observed,omitempty"`
 	RelationRole             string              `json:"relation_role,omitempty"`
 	RelatedInstanceIDs       []string            `json:"related_instance_ids,omitempty"`
 	VID                      string              `json:"vid,omitempty"`
@@ -192,6 +196,8 @@ func EnrichDeviceRelationships(devices []DeviceSnapshot) []DeviceSnapshot {
 		}
 		out[i].ParentStates = parentStatesFor(out[i], byInstance)
 		out[i].ParentLowPowerChildD0 = parentLowPowerWhileChildD0(out[i])
+		out[i].DiagnosticScore, out[i].DiagnosticReasons = diagnosticScore(out[i])
+		out[i].GroupDisplayName = groupDisplayName(out[i])
 	}
 
 	for _, indexes := range groups {
@@ -212,6 +218,56 @@ func EnrichDeviceRelationships(devices []DeviceSnapshot) []DeviceSnapshot {
 		}
 	}
 	return out
+}
+
+func diagnosticScore(d DeviceSnapshot) (int, []string) {
+	var reasons []string
+	score := 0
+	switch d.LogicalGroupReason {
+	case "VID/PID + serial":
+		score = 90
+		reasons = append(reasons, "serial match candidate")
+	case "VID/PID + parent instance":
+		score = 70
+		reasons = append(reasons, "parent instance match candidate")
+	case "VID/PID + location paths":
+		score = 60
+		reasons = append(reasons, "location path match candidate")
+	case "VID/PID only is not enough":
+		reasons = append(reasons, "VID/PID only is not enough")
+	case "missing VID/PID":
+		reasons = append(reasons, "missing VID/PID")
+	default:
+		if strings.TrimSpace(d.LogicalGroupReason) != "" {
+			reasons = append(reasons, d.LogicalGroupReason)
+		}
+	}
+	if d.ParentLowPowerChildD0 {
+		reasons = append(reasons, "parent low-power while child reports D0")
+	}
+	if d.RelationRole != "" {
+		reasons = append(reasons, "role="+d.RelationRole)
+	}
+	return score, reasons
+}
+
+func groupDisplayName(d DeviceSnapshot) string {
+	prefix := "USB Adapter"
+	if d.HasFTDISignal() {
+		prefix = "FTDI Adapter"
+	}
+	switch {
+	case d.Serial != "":
+		return prefix + " " + d.Serial
+	case d.COMPort != "":
+		return prefix + " " + d.COMPort
+	case d.LogicalGroupID != "":
+		return prefix + " " + d.VIDPID()
+	case d.DisplayName() != "":
+		return d.DisplayName()
+	default:
+		return prefix
+	}
 }
 
 func classifyRelationRole(d DeviceSnapshot) string {
@@ -310,6 +366,16 @@ func DeviceEvidenceRaw(d DeviceSnapshot) map[string]string {
 	}
 	add("logical_group_id", d.LogicalGroupID)
 	add("logical_group_reason", d.LogicalGroupReason)
+	if d.DiagnosticScore > 0 || len(d.DiagnosticReasons) > 0 {
+		add("diagnostic_score", fmt.Sprintf("%d", d.DiagnosticScore))
+	}
+	if len(d.DiagnosticReasons) > 0 {
+		add("diagnostic_reasons", strings.Join(d.DiagnosticReasons, " | "))
+	}
+	add("group_display_name", d.GroupDisplayName)
+	if d.SessionObserved {
+		add("session_observed", "true")
+	}
 	add("relation_role", d.RelationRole)
 	if len(d.RelatedInstanceIDs) > 0 {
 		add("related_instance_ids", strings.Join(d.RelatedInstanceIDs, " | "))

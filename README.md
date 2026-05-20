@@ -2,7 +2,7 @@
 
 USB Suspend Watch is an installer-free Windows desktop utility for watching connected USB devices and recording suspected USB Selective Suspend transitions.
 
-The v0.8.1 release uses one production-ready monitoring layer and one lab-only experimental layer:
+The v0.8.2 release uses one production-ready monitoring layer and one lab-only experimental layer:
 
 - Simple mode: runs without elevation, watches `WM_DEVICECHANGE`, polls SetupAPI, and reads `SPDRP_DEVICE_POWER_DATA`.
 - Experimental ETW mode: starts from the GUI button and may show UAC because Windows requires elevated rights for USB ETW sessions.
@@ -15,11 +15,14 @@ No driver, service, installer, USBPcap dependency, or telemetry is used.
 - Shows a monitoring status summary with connected USB count, low-power device count, suspected suspend count, resume count, privilege, and log path.
 - Lists currently connected USB devices, including each device's current UI state, COM port, connection time, and last-seen time.
 - Defaults to an `FTDI COM only` target filter so FTDI-style USB serial adapters and their related converter nodes are easier to inspect. Switch to `All USB` to see every USB device.
+- Groups FTDI adapter candidates by logical evidence so `USB Serial Port (COMxx)` and `USB Serial Converter` can be inspected together without assuming they are definitely the same physical device.
 - Lets you enable or disable monitoring per connected USB device with checkboxes.
 - Shows a USB changes / transitions pane below the connected-device list for D0/D3, PnP, suspend/resume, and system sleep/wake sequence tracking.
+- Shows a selected-device sequence pane for D0/D3, PnP, parent/hub, wake, and related converter/port events observed after the app started.
+- Separates the diagnostic summary from pretty-printed raw JSON evidence so the exact D0/D3, parent-state, wake, and same-device-candidate evidence can be copied.
 - Records PnP arrival and removal events.
 - Records system sleep and wake broadcasts so USB changes can be correlated with PC suspend/resume.
-- Captures `powercfg /lastwake` after wake broadcasts when Windows allows it.
+- Captures `powercfg /lastwake` after wake broadcasts when Windows allows it and labels wake confidence as high, medium, low, or unknown based on available evidence.
 - Filters the visible event timeline by event type, confidence, and text search.
 - Filters the visible event timeline by display level; the default hides noisy `info` events.
 - Normalizes events into:
@@ -54,7 +57,7 @@ This is an inference from Windows device power data, not a kernel trace.
 
 ### Experimental ETW Mode
 
-The ETW helper is not considered production-ready in v0.8.1 because provider behavior differs by Windows build, permissions, and USB stack provider.
+The ETW helper is not considered production-ready in v0.8.2 because provider behavior differs by Windows build, permissions, and USB stack provider.
 
 For lab testing, click `Start ETW (experimental)`. Depending on the machine policy, this may show UAC. If UAC appears, approve it to start the elevated helper process.
 If no helper log appears within 45 seconds, the GUI records a retryable error so the app does not wait forever. The helper enables USB ETW providers one by one; if one provider is unavailable, the others can still run and the unavailable provider is written to the ETW helper log.
@@ -77,9 +80,18 @@ For production-grade ETW validation today, use Microsoft `logman` traces and com
 
 When the GUI starts an elevated helper, the status area keeps showing the GUI's own privilege and adds the helper privilege once the helper writes its startup log. This makes it clear whether the GUI is still a standard-user process while the ETW helper is actually elevated.
 
-## Device Evidence
+## Device Evidence And UI Layout
 
-The selected-device details pane includes the raw evidence used for simple-mode power classification:
+The main window is split by role:
+
+- Left top: currently connected USB devices.
+- Left middle: FTDI adapter candidate groups.
+- Left bottom: USB changes and transitions observed after this app session started.
+- Right top: the full event timeline.
+- Right middle: the selected device's session sequence.
+- Right bottom: diagnostic summary and raw JSON evidence.
+
+The selected-device diagnostic area includes the evidence used for simple-mode power classification:
 
 - `SPDRP_DEVICE_POWER_DATA` raw bytes.
 - `CM_POWER_DATA.PD_MostRecentPowerState`, mapped to D0/D1/D2/D3.
@@ -87,12 +99,15 @@ The selected-device details pane includes the raw evidence used for simple-mode 
 - Whether the device looks like the FTDI USB serial target under inspection.
 - VID/PID, revision, serial, physical device object name, location paths, and parent/hub instance chain.
 - Logical group, relation role, and related instance IDs for USB Serial Port / USB Serial Converter same-device candidates.
+- Same-device candidate score and reasons: serial match is 90%, parent-instance match is 70%, location-path match is 60%, and VID/PID-only is 0% because it is not enough evidence.
 - Parent/hub power states, including a `parent_low_power_child_d0` warning when a child reports D0 while a parent or hub reports D1/D2/D3.
 - An indented relation tree that shows parent hubs above the selected device and related converter/port candidates below it.
 - Connected-at, last-changed, and recent per-device event sequence from the current app session.
 - Wake correlation for nearby USB/PnP/D0/D3 events and `powercfg /lastwake` output after PC resume.
 
 FTDI-style USB serial devices that expose both `USB Serial Port (COMxx)` and `USB Serial Converter` can share VID/PID. The app now labels them as the same physical-adapter candidate only when it can match VID/PID plus serial, parent instance, or location paths. VID/PID alone is not enough and is not treated as same-device evidence.
+
+The app does not infer historical plug/unplug or D0/D3 transitions from before startup. It separates the current SetupAPI snapshot from events observed in the current session.
 
 ## Logs
 
@@ -105,7 +120,9 @@ If that location is not writable, logs fall back to:
 ```
 
 Each log line is one JSON object.
-Power transition and PnP events include a `raw` object with the SetupAPI evidence above. ETW events include provider properties in the same `raw` object. Wake events may include `lastwake`, `lastwake_error`, and `wake_correlation`.
+Power transition and PnP events include a `raw` object with the SetupAPI evidence above. ETW events include provider properties in the same `raw` object. Wake events may include `lastwake`, `lastwake_error`, `wake_confidence`, `wake_reasons`, and `wake_correlation`.
+
+New v0.8.2 raw keys are additive and keep existing JSONL compatibility. They may include `diagnostic_score`, `diagnostic_reasons`, `session_started_at`, and `diagnostic_summary`.
 
 ## Build
 
@@ -137,7 +154,7 @@ go test ./...
 go vet ./...
 go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
-.\build.ps1 -Version v0.8.1
+.\build.ps1 -Version v0.8.2
 ```
 
 `go test -race` requires CGO and a C compiler on Windows. The release package is built with `CGO_ENABLED=0`.

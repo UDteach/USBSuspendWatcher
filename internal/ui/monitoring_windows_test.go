@@ -43,7 +43,7 @@ func TestDeviceMonitoringDefaultsOnAndPersistsByInstanceID(t *testing.T) {
 	}
 }
 
-func TestDeviceMonitoringAliasesCoverHardwareIDEvents(t *testing.T) {
+func TestDeviceMonitoringDoesNotApplyBroadHardwareIDWhenSpecificIDExists(t *testing.T) {
 	m := newDeviceTableModel()
 	device := model.DeviceSnapshot{
 		InstanceID: `USB\VID_0BDA&PID_0129\A`,
@@ -58,8 +58,169 @@ func TestDeviceMonitoringAliasesCoverHardwareIDEvents(t *testing.T) {
 	}
 
 	hardwareOnlyEventDevice := model.DeviceSnapshot{HardwareID: `USB\VID_0BDA&PID_0129`}
+	if !m.IsMonitored(hardwareOnlyEventDevice) {
+		t.Fatalf("broad hardware-only event should not inherit a specific instance monitoring state")
+	}
+}
+
+func TestDeviceMonitoringCanUseBroadHardwareIDWhenNoSpecificIDExists(t *testing.T) {
+	m := newDeviceTableModel()
+	device := model.DeviceSnapshot{
+		HardwareID:   `USB\VID_0BDA&PID_0129`,
+		FriendlyName: "USB Reader",
+	}
+
+	m.Set([]model.DeviceSnapshot{device})
+	if err := m.SetChecked(0, false); err != nil {
+		t.Fatalf("SetChecked returned error: %v", err)
+	}
+
+	hardwareOnlyEventDevice := model.DeviceSnapshot{HardwareID: `USB\VID_0BDA&PID_0129`}
 	if m.IsMonitored(hardwareOnlyEventDevice) {
-		t.Fatalf("hardware-id alias should inherit the disabled monitoring state")
+		t.Fatalf("hardware-id fallback should be used when no specific identity exists")
+	}
+}
+
+func TestDeviceMonitoringFollowsSerialAcrossReconnect(t *testing.T) {
+	m := newDeviceTableModel()
+	original := model.DeviceSnapshot{
+		InstanceID:   `FTDIPORT\VID_0403+PID_6001+FT123\0000`,
+		FriendlyName: "USB Serial Port",
+		VID:          "0403",
+		PID:          "6001",
+		Serial:       "FT123",
+		COMPort:      "COM52",
+	}
+	reconnected := model.DeviceSnapshot{
+		InstanceID:   `FTDIPORT\VID_0403+PID_6001+FT123\0001`,
+		FriendlyName: "USB Serial Port",
+		VID:          "0403",
+		PID:          "6001",
+		Serial:       "FT123",
+		COMPort:      "COM52",
+	}
+
+	m.Set([]model.DeviceSnapshot{original})
+	if err := m.SetChecked(0, false); err != nil {
+		t.Fatalf("SetChecked returned error: %v", err)
+	}
+	m.Set([]model.DeviceSnapshot{reconnected})
+
+	if m.IsMonitored(reconnected) {
+		t.Fatalf("serial-qualified monitoring choice should follow reconnect")
+	}
+}
+
+func TestFindDeviceIndexFollowsSerialAcrossReconnect(t *testing.T) {
+	target := model.DeviceSnapshot{VID: "0403", PID: "6001", Serial: "FT123", COMPort: "COM52"}
+	devices := []model.DeviceSnapshot{
+		{VID: "0403", PID: "6001", Serial: "FT999", COMPort: "COM53"},
+		{VID: "0403", PID: "6001", Serial: "FT123", COMPort: "COM54"},
+	}
+	if got := findDeviceIndex(devices, target); got != 1 {
+		t.Fatalf("findDeviceIndex = %d, want 1", got)
+	}
+}
+
+func TestFindDeviceIndexDoesNotFollowReusedCOMWhenSerialDiffers(t *testing.T) {
+	target := model.DeviceSnapshot{VID: "0403", PID: "6001", Serial: "FT123", COMPort: "COM52"}
+	devices := []model.DeviceSnapshot{
+		{VID: "0403", PID: "6001", Serial: "FT999", COMPort: "COM52"},
+	}
+	if got := findDeviceIndex(devices, target); got != -1 {
+		t.Fatalf("findDeviceIndex = %d, want -1 for reused COM with different serial", got)
+	}
+}
+
+func TestWatchDetailsRefreshesForWatchedDeviceAndSystemPower(t *testing.T) {
+	watched := model.DeviceSnapshot{VID: "0403", PID: "6001", Serial: "FT123", COMPort: "COM52"}
+	a := &app{watchedDevice: watched, hasWatchedDevice: true, watchFocusActive: true}
+
+	if !a.shouldRefreshWatchDetailsForEvent(model.Event{Device: model.DeviceSnapshot{VID: "0403", PID: "6001", Serial: "FT123"}}) {
+		t.Fatalf("watched device event should refresh watch details")
+	}
+	if !a.shouldRefreshWatchDetailsForEvent(model.Event{Type: model.EventSystemWake}) {
+		t.Fatalf("system power event should refresh watch details for wake correlation")
+	}
+	if a.shouldRefreshWatchDetailsForEvent(model.Event{Device: model.DeviceSnapshot{VID: "0403", PID: "6001", Serial: "FT999"}}) {
+		t.Fatalf("different serial device event should not refresh watch details")
+	}
+}
+
+func TestDeviceMonitoringDoesNotUseBareSerialAcrossDifferentVIDPID(t *testing.T) {
+	m := newDeviceTableModel()
+	original := model.DeviceSnapshot{
+		VID:     "0403",
+		PID:     "6001",
+		Serial:  "FT123",
+		COMPort: "COM52",
+	}
+	other := model.DeviceSnapshot{
+		VID:     "1234",
+		PID:     "6001",
+		Serial:  "FT123",
+		COMPort: "COM53",
+	}
+
+	m.Set([]model.DeviceSnapshot{original})
+	if err := m.SetChecked(0, false); err != nil {
+		t.Fatalf("SetChecked returned error: %v", err)
+	}
+	m.Set([]model.DeviceSnapshot{other})
+
+	if !m.IsMonitored(other) {
+		t.Fatalf("bare serial should not disable a different VID/PID device")
+	}
+}
+
+func TestDeviceMonitoringDoesNotUseVIDPIDFallbackWhenSerialDiffers(t *testing.T) {
+	m := newDeviceTableModel()
+	original := model.DeviceSnapshot{
+		VID:     "0403",
+		PID:     "6001",
+		Serial:  "FT123",
+		COMPort: "COM52",
+	}
+	other := model.DeviceSnapshot{
+		VID:     "0403",
+		PID:     "6001",
+		Serial:  "FT999",
+		COMPort: "COM53",
+	}
+
+	m.Set([]model.DeviceSnapshot{original})
+	if err := m.SetChecked(0, false); err != nil {
+		t.Fatalf("SetChecked returned error: %v", err)
+	}
+	m.Set([]model.DeviceSnapshot{other})
+
+	if !m.IsMonitored(other) {
+		t.Fatalf("VID/PID-only fallback should not disable a different serial device")
+	}
+}
+
+func TestDeviceTableSetKeepsLatestSnapshotWhenVisibleRowUnchanged(t *testing.T) {
+	m := newDeviceTableModel()
+	first := model.DeviceSnapshot{
+		InstanceID:   `USB\VID_0403&PID_6001\A`,
+		FriendlyName: "USB Serial Port",
+		VID:          "0403",
+		PID:          "6001",
+		Serial:       "FT123",
+		Present:      true,
+	}
+	second := first
+	second.Serial = "FT456"
+
+	m.Set([]model.DeviceSnapshot{first})
+	m.Set([]model.DeviceSnapshot{second})
+
+	got, ok := m.Item(0)
+	if !ok {
+		t.Fatalf("expected current item")
+	}
+	if got.Serial != "FT456" {
+		t.Fatalf("latest snapshot serial = %q, want FT456", got.Serial)
 	}
 }
 

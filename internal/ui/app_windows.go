@@ -97,6 +97,9 @@ type app struct {
 	localizing        bool
 	language          displayLanguage
 	statusText        string
+	watchedDevice     model.DeviceSnapshot
+	hasWatchedDevice  bool
+	watchFocusActive  bool
 }
 
 func Run(cfg Config) error {
@@ -488,6 +491,7 @@ func (a *app) consumePollerEvents() {
 }
 
 func (a *app) refreshDevices() {
+	target, hasTarget := a.currentDeviceSelectionTarget()
 	devices := a.poller.Snapshot()
 	devices = filterDevicesForTarget(devices, a.currentTargetFilterIndex())
 	sort.Slice(devices, func(i, j int) bool {
@@ -496,6 +500,9 @@ func (a *app) refreshDevices() {
 	a.devices.Set(devices)
 	if a.groups != nil {
 		a.groups.Set(devices)
+	}
+	if hasTarget {
+		a.restoreDeviceSelection(devices, target)
 	}
 	a.updateDetails()
 	a.updateStatus(statusSimpleMonitorRunning)
@@ -516,16 +523,26 @@ func (a *app) addEvent(event model.Event, persist bool) {
 	if persist {
 		_ = a.logger.Append(event)
 	}
-	if a.eventView != nil && a.events.RowCount() > 0 && eventMatchesFilter(event, a.events.filter) {
+	if a.shouldAutoSelectLatestEvent() && a.eventView != nil && a.events.RowCount() > 0 && eventMatchesFilter(event, a.events.filter) {
 		_ = a.eventView.SetSelectedIndexes([]int{a.events.RowCount() - 1})
 	}
 	a.updateSummary()
+	if a.shouldRefreshWatchDetailsForEvent(event) {
+		a.updateDetails()
+	}
 	a.notifyImportantEvent(event)
 }
 
 func (a *app) onDeviceSelectionChanged() {
 	if a.selectionChanging {
 		return
+	}
+	if idx := selectedIndex(a.deviceView); idx >= 0 {
+		if device, ok := a.devices.Item(idx); ok {
+			a.watchedDevice = device
+			a.hasWatchedDevice = true
+			a.watchFocusActive = true
+		}
 	}
 	if selectedIndex(a.deviceView) >= 0 && a.eventView != nil {
 		a.selectionChanging = true
@@ -543,6 +560,7 @@ func (a *app) onEventSelectionChanged() {
 		return
 	}
 	if selectedIndex(a.eventView) >= 0 && a.deviceView != nil {
+		a.watchFocusActive = false
 		a.selectionChanging = true
 		_ = a.deviceView.SetSelectedIndexes([]int{})
 		if a.usbChangeView != nil {
@@ -558,6 +576,7 @@ func (a *app) onUSBChangeSelectionChanged() {
 		return
 	}
 	if selectedIndex(a.usbChangeView) >= 0 {
+		a.watchFocusActive = false
 		a.selectionChanging = true
 		if a.deviceView != nil {
 			_ = a.deviceView.SetSelectedIndexes([]int{})
@@ -573,6 +592,55 @@ func (a *app) onUSBChangeSelectionChanged() {
 func (a *app) onDeviceMonitorChanged(model.DeviceSnapshot, bool) {
 	a.updateSummary()
 	a.updateDetails()
+}
+
+func (a *app) shouldAutoSelectLatestEvent() bool {
+	return !a.watchFocusActive && selectedIndex(a.deviceView) < 0 && selectedIndex(a.usbChangeView) < 0
+}
+
+func (a *app) shouldRefreshWatchDetailsForEvent(event model.Event) bool {
+	if !a.hasWatchedDevice || !a.watchFocusActive {
+		return false
+	}
+	if sameDeviceForHistory(a.watchedDevice, event.Device) {
+		return true
+	}
+	return isSystemPowerEvent(event)
+}
+
+func (a *app) currentDeviceSelectionTarget() (model.DeviceSnapshot, bool) {
+	if idx := selectedIndex(a.deviceView); idx >= 0 {
+		if device, ok := a.devices.Item(idx); ok {
+			return device, true
+		}
+	}
+	if a.hasWatchedDevice && a.watchFocusActive && selectedIndex(a.eventView) < 0 && selectedIndex(a.usbChangeView) < 0 {
+		return a.watchedDevice, true
+	}
+	return model.DeviceSnapshot{}, false
+}
+
+func (a *app) restoreDeviceSelection(devices []model.DeviceSnapshot, target model.DeviceSnapshot) bool {
+	idx := findDeviceIndex(devices, target)
+	if idx < 0 || a.deviceView == nil {
+		return false
+	}
+	a.selectionChanging = true
+	_ = a.deviceView.SetSelectedIndexes([]int{idx})
+	a.selectionChanging = false
+	a.watchedDevice = devices[idx]
+	a.hasWatchedDevice = true
+	a.watchFocusActive = true
+	return true
+}
+
+func findDeviceIndex(devices []model.DeviceSnapshot, target model.DeviceSnapshot) int {
+	for i, device := range devices {
+		if sameDeviceForSelection(device, target) {
+			return i
+		}
+	}
+	return -1
 }
 
 func (a *app) openSelectedDeviceDetailsWindow() {
@@ -703,6 +771,15 @@ func (a *app) updateDetails() {
 			)
 			return
 		}
+	}
+	if a.hasWatchedDevice && a.watchFocusActive {
+		history := a.events.DeviceHistory(a.watchedDevice, 100)
+		a.setSelectedSequence(history)
+		a.setDetails(
+			formatDevice(a.watchedDevice, a.language, a.devices.IsMonitored(a.watchedDevice), history),
+			formatDeviceRaw(a.watchedDevice, history),
+		)
+		return
 	}
 	a.setSelectedSequence(nil)
 	a.setDetails(a.text().emptyDetails, "{}")

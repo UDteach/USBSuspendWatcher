@@ -93,6 +93,10 @@ func (m *deviceTableModel) Set(items []model.DeviceSnapshot) {
 			}
 		}
 	}
+	if sameDeviceRows(m.items, items) {
+		m.items = items
+		return
+	}
 	m.items = items
 	m.PublishRowsReset()
 }
@@ -319,14 +323,23 @@ func hasDeviceIdentity(device model.DeviceSnapshot) bool {
 }
 
 func deviceMonitorKeys(device model.DeviceSnapshot) []string {
-	candidates := []string{
-		device.InstanceID,
-		device.HardwareID,
-		device.VIDPID(),
-		device.COMPort,
+	candidates := []string{device.LogicalGroupID}
+	if strings.TrimSpace(device.Serial) != "" {
+		if strings.TrimSpace(device.VID) != "" || strings.TrimSpace(device.PID) != "" {
+			candidates = append(candidates, device.VIDPID()+" serial="+device.Serial)
+		}
 	}
-	if displayName := device.DisplayName(); displayName != "(unknown USB device)" {
-		candidates = append(candidates, displayName)
+	candidates = append(candidates, device.RelatedInstanceIDs...)
+	candidates = append(candidates,
+		device.InstanceID,
+		device.COMPort,
+	)
+	if !hasSpecificMonitorIdentity(device) {
+		candidates = append(candidates, device.HardwareID)
+		if displayName := device.DisplayName(); displayName != "(unknown USB device)" {
+			candidates = append(candidates, displayName)
+		}
+		candidates = append(candidates, device.VIDPID())
 	}
 	keys := make([]string, 0, len(candidates))
 	seen := make(map[string]struct{}, len(candidates))
@@ -344,6 +357,44 @@ func deviceMonitorKeys(device model.DeviceSnapshot) []string {
 	return keys
 }
 
+func hasSpecificMonitorIdentity(device model.DeviceSnapshot) bool {
+	if strings.TrimSpace(device.LogicalGroupID) != "" ||
+		strings.TrimSpace(device.InstanceID) != "" ||
+		strings.TrimSpace(device.COMPort) != "" ||
+		len(device.RelatedInstanceIDs) > 0 {
+		return true
+	}
+	return strings.TrimSpace(device.Serial) != "" &&
+		(strings.TrimSpace(device.VID) != "" || strings.TrimSpace(device.PID) != "")
+}
+
+func sameDeviceRows(a, b []model.DeviceSnapshot) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if deviceRowSignature(a[i]) != deviceRowSignature(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func deviceRowSignature(d model.DeviceSnapshot) string {
+	return strings.Join([]string{
+		d.DisplayName(),
+		deviceCurrentState(d, true, languageEnglish),
+		d.VIDPID(),
+		string(d.PowerState),
+		d.Enumerator,
+		d.COMPort,
+		d.Location,
+		d.ConnectedAt.Format(time.RFC3339Nano),
+		d.LastSeen.Format(time.RFC3339Nano),
+		compactParentTree(d),
+	}, "\x00")
+}
+
 func sameDeviceForHistory(a, b model.DeviceSnapshot) bool {
 	if strings.TrimSpace(a.InstanceID) != "" && strings.EqualFold(a.InstanceID, b.InstanceID) {
 		return true
@@ -354,13 +405,43 @@ func sameDeviceForHistory(a, b model.DeviceSnapshot) bool {
 	if containsFold(a.RelatedInstanceIDs, b.InstanceID) || containsFold(b.RelatedInstanceIDs, a.InstanceID) {
 		return true
 	}
+	if strings.TrimSpace(a.Serial) != "" &&
+		strings.EqualFold(a.Serial, b.Serial) &&
+		strings.EqualFold(a.VID, b.VID) &&
+		strings.EqualFold(a.PID, b.PID) {
+		return true
+	}
+	if strings.TrimSpace(a.Serial) != "" &&
+		strings.TrimSpace(b.Serial) != "" &&
+		!strings.EqualFold(a.Serial, b.Serial) {
+		return false
+	}
 	if strings.TrimSpace(a.COMPort) != "" && strings.EqualFold(a.COMPort, b.COMPort) {
+		return true
+	}
+	return false
+}
+
+func sameDeviceForSelection(a, b model.DeviceSnapshot) bool {
+	if strings.TrimSpace(a.InstanceID) != "" && strings.EqualFold(a.InstanceID, b.InstanceID) {
+		return true
+	}
+	if strings.TrimSpace(a.LogicalGroupID) != "" && strings.EqualFold(a.LogicalGroupID, b.LogicalGroupID) {
+		return true
+	}
+	if containsFold(a.RelatedInstanceIDs, b.InstanceID) || containsFold(b.RelatedInstanceIDs, a.InstanceID) {
 		return true
 	}
 	if strings.TrimSpace(a.Serial) != "" &&
 		strings.EqualFold(a.Serial, b.Serial) &&
 		strings.EqualFold(a.VID, b.VID) &&
 		strings.EqualFold(a.PID, b.PID) {
+		return true
+	}
+	if strings.TrimSpace(a.Serial) == "" &&
+		strings.TrimSpace(b.Serial) == "" &&
+		strings.TrimSpace(a.COMPort) != "" &&
+		strings.EqualFold(a.COMPort, b.COMPort) {
 		return true
 	}
 	return false
@@ -418,12 +499,27 @@ func (m *eventTableModel) Value(row, col int) interface{} {
 }
 
 func (m *eventTableModel) Add(event model.Event) {
+	oldVisibleLen := len(m.visible)
 	m.items = append(m.items, event)
+	trimmed := false
 	if m.limit > 0 && len(m.items) > m.limit {
 		m.items = m.items[len(m.items)-m.limit:]
+		trimmed = true
 	}
-	m.visible = filterEvents(m.items, m.filter)
-	m.PublishRowsReset()
+	nextVisible := filterEvents(m.items, m.filter)
+	switch {
+	case trimmed:
+		m.visible = nextVisible
+		m.PublishRowsReset()
+	case len(nextVisible) == oldVisibleLen:
+		m.visible = nextVisible
+	case len(nextVisible) == oldVisibleLen+1:
+		m.visible = nextVisible
+		m.PublishRowsInserted(oldVisibleLen, oldVisibleLen)
+	default:
+		m.visible = nextVisible
+		m.PublishRowsReset()
+	}
 }
 
 func (m *eventTableModel) Set(events []model.Event) {

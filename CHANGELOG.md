@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.8.4
+
+- Kept the selected connected USB row as a watch target across refreshes and reconnects when stable identity evidence can match the device again.
+- Reduced GUI table churn by avoiding full connected-device resets when visible row data is unchanged and by inserting visible timeline rows instead of resetting the whole event table for every appended event.
+- Tightened per-device monitoring keys so VID/PID-only or hardware-ID fallback evidence does not disable a different device when a specific identity such as VID/PID plus serial, logical group, instance ID, related ID, or COM port is available.
+- Added regression tests for reconnect tracking, reused COM ports with different serials, broad hardware-ID fallback behavior, stale snapshot avoidance, and stable serial-qualified monitoring.
+
 ## v0.8.3
 
 - Added a default `Parent tree` column to the connected USB table so parent/hub hanging relationships are visible without opening details.

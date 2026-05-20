@@ -80,6 +80,30 @@ func (m *deviceTableModel) Value(row, col int) interface{} {
 			return ""
 		}
 		return d.LastSeen.Format("15:04:05")
+	case 9:
+		return d.InstanceID
+	case 10:
+		return d.ParentInstanceID
+	case 11:
+		return d.ContainerID
+	case 12:
+		return d.Class
+	case 13:
+		return d.ClassGuid
+	case 14:
+		return d.Service
+	case 15:
+		return d.Driver
+	case 16:
+		return d.VID
+	case 17:
+		return d.PID
+	case 18:
+		return strings.Join(d.LocationPaths, " | ")
+	case 19:
+		return d.BusReportedDeviceDesc
+	case 20:
+		return d.PhysicalDeviceObjectName
 	default:
 		return ""
 	}
@@ -98,6 +122,20 @@ func parentRowValue(r deviceTableRow, col int) interface{} {
 		return string(r.parent.PowerState)
 	case 4:
 		return r.parent.Evidence
+	case 9:
+		return r.parent.InstanceID
+	case 11:
+		return r.parent.ContainerID
+	case 12:
+		return r.parent.Class
+	case 13:
+		return r.parent.ClassGuid
+	case 14:
+		return r.parent.Service
+	case 15:
+		return r.parent.Driver
+	case 18:
+		return strings.Join(r.parent.LocationPaths, " | ")
 	default:
 		return ""
 	}
@@ -195,6 +233,9 @@ func appendDeviceTreeRows(rows *[]deviceTableRow, node *deviceTreeNode, level in
 			kind:   deviceTableRowParent,
 		})
 	}
+	sort.SliceStable(node.children, func(i, j int) bool {
+		return strings.ToLower(parentRowName(node.children[i].parent)) < strings.ToLower(parentRowName(node.children[j].parent))
+	})
 	for _, child := range node.children {
 		appendDeviceTreeRows(rows, child, level+1)
 	}
@@ -253,7 +294,12 @@ func parentDeviceSnapshot(parent model.ParentDeviceState) model.DeviceSnapshot {
 		FriendlyName:       parent.DisplayName,
 		Service:            parent.Service,
 		Class:              parent.Class,
+		ClassGuid:          parent.ClassGuid,
+		Driver:             parent.Driver,
+		ContainerID:        parent.ContainerID,
 		Enumerator:         parent.Enumerator,
+		Location:           parent.Location,
+		LocationPaths:      parent.LocationPaths,
 		PowerState:         parent.PowerState,
 		PowerStateEvidence: parent.Evidence,
 		Present:            true,
@@ -509,6 +555,18 @@ func deviceRowSignature(d model.DeviceSnapshot) string {
 		d.Enumerator,
 		d.COMPort,
 		d.Location,
+		d.InstanceID,
+		d.ParentInstanceID,
+		d.ContainerID,
+		d.Class,
+		d.ClassGuid,
+		d.Service,
+		d.Driver,
+		d.VID,
+		d.PID,
+		strings.Join(d.LocationPaths, " | "),
+		d.BusReportedDeviceDesc,
+		d.PhysicalDeviceObjectName,
 		d.ConnectedAt.Format(time.RFC3339Nano),
 		d.LastSeen.Format(time.RFC3339Nano),
 	}, "\x00")
@@ -743,7 +801,10 @@ func isWakeCorrelationEvent(event model.Event) bool {
 	switch event.Type {
 	case model.EventPnPArrival, model.EventPnPRemoval,
 		model.EventPowerD0Exit, model.EventPowerD0Entry,
-		model.EventSuspectSuspend, model.EventResume:
+		model.EventSuspectSuspend, model.EventResume,
+		model.EventDStateTransition, model.EventParentMismatch,
+		model.EventProblemCode, model.EventStatusChanged,
+		model.EventDeviceMissing, model.EventDeviceReenum:
 		return true
 	default:
 		return false
@@ -758,6 +819,13 @@ func isUSBChangeTimelineEvent(event model.Event) bool {
 		model.EventPowerD0Entry,
 		model.EventSuspectSuspend,
 		model.EventResume,
+		model.EventDStateTransition,
+		model.EventParentMismatch,
+		model.EventProblemCode,
+		model.EventStatusChanged,
+		model.EventDeviceMissing,
+		model.EventDeviceReenum,
+		model.EventLastSeenStale,
 		model.EventIdleNotification,
 		model.EventSystemSleep,
 		model.EventSystemWake:

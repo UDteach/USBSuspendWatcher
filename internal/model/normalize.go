@@ -34,6 +34,10 @@ func NormalizePowerTransition(previous, current DeviceSnapshot) []Event {
 	if previous.PowerState == current.PowerState || current.PowerState == PowerUnknown {
 		return nil
 	}
+	transition := base
+	transition.Type = EventDStateTransition
+	transition.Confidence = ConfidenceHigh
+	transition.Message = fmt.Sprintf("device D-state transition %s -> %s", previous.PowerState, current.PowerState)
 
 	switch {
 	case previous.PowerState == PowerD0 && IsLowPowerState(current.PowerState):
@@ -44,7 +48,7 @@ func NormalizePowerTransition(previous, current DeviceSnapshot) []Event {
 		suspect.Type = EventSuspectSuspend
 		suspect.Confidence = ConfidenceMedium
 		suspect.Message = "device left D0 and is now in a low-power state; treating as suspected selective suspend"
-		return []Event{out, suspect}
+		return []Event{transition, out, suspect}
 	case IsLowPowerState(previous.PowerState) && current.PowerState == PowerD0:
 		out := base
 		out.Type = EventPowerD0Entry
@@ -59,13 +63,13 @@ func NormalizePowerTransition(previous, current DeviceSnapshot) []Event {
 		if current.ParentLowPowerChildD0 {
 			resume.Message += "; parent hub/device is low power while child reports D0"
 		}
-		return []Event{out, resume}
+		return []Event{transition, out, resume}
 	default:
 		out := base
 		out.Type = EventInfo
 		out.Confidence = ConfidenceLow
 		out.Message = fmt.Sprintf("device power state changed from %s to %s", previous.PowerState, current.PowerState)
-		return []Event{out}
+		return []Event{transition, out}
 	}
 }
 

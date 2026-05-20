@@ -22,6 +22,8 @@ const (
 	spdrpHardwareID               = 0x00000001
 	spdrpService                  = 0x00000004
 	spdrpClass                    = 0x00000007
+	spdrpClassGUID                = 0x00000008
+	spdrpDriver                   = 0x00000009
 	spdrpMFG                      = 0x0000000B
 	spdrpFriendlyName             = 0x0000000C
 	spdrpLocationInfo             = 0x0000000D
@@ -29,11 +31,16 @@ const (
 	spdrpEnumeratorName           = 0x00000016
 	spdrpDevicePowerData          = 0x0000001E
 	spdrpLocationPaths            = 0x00000023
+	spdrpBaseContainerID          = 0x00000024
+	spdrpBusReportedDeviceDesc    = 0x00000040
+	spdrpAddress                  = 0x0000001C
+	spdrpBusNumber                = 0x00000015
 
 	dicsFlagGlobal = 0x00000001
 	diregDev       = 0x00000001
 	keyRead        = 0x00020019
 	crSuccess      = 0
+	dnHasProblem   = 0x00000400
 )
 
 var (
@@ -47,6 +54,7 @@ var (
 	procSetupDiOpenDevRegKey         = setupapi.NewProc("SetupDiOpenDevRegKey")
 	procCMGetParent                  = cfgmgr32.NewProc("CM_Get_Parent")
 	procCMGetDeviceIDW               = cfgmgr32.NewProc("CM_Get_Device_IDW")
+	procCMGetDevNodeStatus           = cfgmgr32.NewProc("CM_Get_DevNode_Status")
 
 	comPortRe = regexp.MustCompile(`\((COM\d+)\)`)
 )
@@ -67,6 +75,7 @@ func ListPresentDevices() ([]model.DeviceSnapshot, error) {
 
 	now := time.Now()
 	var devices []model.DeviceSnapshot
+	var allDeviceSnapshots []model.DeviceSnapshot
 	for index := uint32(0); ; index++ {
 		data := spDevInfoData{cbSize: uint32(unsafe.Sizeof(spDevInfoData{}))}
 		ok, _, callErr := procSetupDiEnumDeviceInfo.Call(h, uintptr(index), uintptr(unsafe.Pointer(&data)))
@@ -78,7 +87,8 @@ func ListPresentDevices() ([]model.DeviceSnapshot, error) {
 		}
 
 		instanceID, _ := deviceInstanceID(h, &data)
-		powerState, powerEvidence, powerHex := powerStateProperty(h, &data)
+		powerState, powerEvidence, powerHex, powerData := powerStateProperty(h, &data)
+		status := devNodeStatus(data.devInst)
 		parentChain := parentInstanceChain(data.devInst)
 		d := model.DeviceSnapshot{
 			InstanceID:               instanceID,
@@ -87,6 +97,10 @@ func ListPresentDevices() ([]model.DeviceSnapshot, error) {
 			Manufacturer:             firstStringProperty(h, &data, spdrpMFG),
 			Service:                  firstStringProperty(h, &data, spdrpService),
 			Class:                    firstStringProperty(h, &data, spdrpClass),
+			ClassGuid:                firstStringProperty(h, &data, spdrpClassGUID),
+			Driver:                   firstStringProperty(h, &data, spdrpDriver),
+			ContainerID:              firstStringProperty(h, &data, spdrpBaseContainerID),
+			BusReportedDeviceDesc:    firstStringProperty(h, &data, spdrpBusReportedDeviceDesc),
 			Enumerator:               firstStringProperty(h, &data, spdrpEnumeratorName),
 			Location:                 firstStringProperty(h, &data, spdrpLocationInfo),
 			LocationPaths:            multiStringProperty(h, &data, spdrpLocationPaths),
@@ -94,9 +108,16 @@ func ListPresentDevices() ([]model.DeviceSnapshot, error) {
 			COMPort:                  deviceCOMPort(h, &data),
 			PhysicalDeviceObjectName: firstStringProperty(h, &data, spdrpPhysicalDeviceObjectName),
 			ParentChain:              parentChain,
+			ConfigManagerErrorCode:   status.problemCode,
+			ProblemCode:              status.problemCode,
+			StatusFlags:              status.flags,
+			StatusFlagNames:          status.names,
+			Status:                   status.label,
 			PowerState:               powerState,
+			PowerData:                powerData,
 			PowerStateEvidence:       powerEvidence,
 			PowerDataHex:             powerHex,
+			USBPcapHints:             usbpcapHints(h, &data, parentChain),
 			Present:                  true,
 			LastSeen:                 now,
 		}
@@ -104,11 +125,12 @@ func ListPresentDevices() ([]model.DeviceSnapshot, error) {
 			d.ParentInstanceID = parentChain[0]
 		}
 		model.PopulateUSBIDs(&d)
+		allDeviceSnapshots = append(allDeviceSnapshots, d)
 		if isUSBDevice(d) {
 			devices = append(devices, d)
 		}
 	}
-	return model.EnrichDeviceRelationships(devices), nil
+	return model.EnrichDeviceRelationships(devices, allDeviceSnapshots), nil
 }
 
 func deviceInstanceID(h uintptr, data *spDevInfoData) (string, error) {
@@ -173,13 +195,18 @@ func splitUTF16MultiString(buf []byte) []string {
 	return out
 }
 
-func powerStateProperty(h uintptr, data *spDevInfoData) (model.DevicePowerState, string, string) {
+func powerStateProperty(h uintptr, data *spDevInfoData) (model.DevicePowerState, string, string, model.PowerData) {
 	buf, ok := registryProperty(h, data, spdrpDevicePowerData)
 	if !ok {
-		return model.PowerUnknown, "SPDRP_DEVICE_POWER_DATA unavailable", ""
+		return model.PowerUnknown, "SPDRP_DEVICE_POWER_DATA unavailable", "", model.PowerData{}
 	}
-	state, evidence := powerStateInfoFromCMData(buf)
-	return state, evidence, strings.ToUpper(hex.EncodeToString(buf))
+	powerData := powerDataFromCMData(buf)
+	state := powerData.MostRecentPowerState
+	if state == "" {
+		state = model.PowerUnknown
+	}
+	evidence := powerStateEvidence(powerData, len(buf))
+	return state, evidence, strings.ToUpper(hex.EncodeToString(buf)), powerData
 }
 
 func powerStateFromCMData(buf []byte) model.DevicePowerState {
@@ -188,22 +215,185 @@ func powerStateFromCMData(buf []byte) model.DevicePowerState {
 }
 
 func powerStateInfoFromCMData(buf []byte) (model.DevicePowerState, string) {
-	if len(buf) < 8 {
-		return model.PowerUnknown, fmt.Sprintf("SPDRP_DEVICE_POWER_DATA too short: %d bytes", len(buf))
+	powerData := powerDataFromCMData(buf)
+	if powerData.MostRecentPowerState == "" || powerData.MostRecentPowerState == model.PowerUnknown {
+		if len(buf) < 8 {
+			return model.PowerUnknown, fmt.Sprintf("SPDRP_DEVICE_POWER_DATA too short: %d bytes", len(buf))
+		}
+		return model.PowerUnknown, fmt.Sprintf("SPDRP_DEVICE_POWER_DATA CM_POWER_DATA.PD_MostRecentPowerState=%d (unknown)", powerData.MostRecentPowerStateRaw)
 	}
-	state := binary.LittleEndian.Uint32(buf[4:8])
+	return powerData.MostRecentPowerState, powerStateEvidence(powerData, len(buf))
+}
+
+func powerDataFromCMData(buf []byte) model.PowerData {
+	power := model.PowerData{D3HotColdNote: "D3hot/D3cold cannot be determined from PD_MostRecentPowerState alone"}
+	if len(buf) < 8 {
+		return power
+	}
+	power.Size = binary.LittleEndian.Uint32(buf[0:4])
+	power.MostRecentPowerStateRaw = binary.LittleEndian.Uint32(buf[4:8])
+	power.MostRecentPowerState = devicePowerStateFromRaw(power.MostRecentPowerStateRaw)
+	if len(buf) >= 12 {
+		power.Capabilities = binary.LittleEndian.Uint32(buf[8:12])
+	}
+	if len(buf) >= 16 {
+		power.D1Latency = binary.LittleEndian.Uint32(buf[12:16])
+	}
+	if len(buf) >= 20 {
+		power.D2Latency = binary.LittleEndian.Uint32(buf[16:20])
+	}
+	if len(buf) >= 24 {
+		power.D3Latency = binary.LittleEndian.Uint32(buf[20:24])
+	}
+	offset := 24
+	for i := 0; i < 7 && len(buf) >= offset+4; i++ {
+		raw := binary.LittleEndian.Uint32(buf[offset : offset+4])
+		power.PowerStateMappingRaw = append(power.PowerStateMappingRaw, raw)
+		power.PowerStateMapping = append(power.PowerStateMapping, devicePowerStateFromRaw(raw))
+		offset += 4
+	}
+	if len(buf) >= offset+4 {
+		power.DeepestSystemWakeRaw = binary.LittleEndian.Uint32(buf[offset : offset+4])
+		power.DeepestSystemWake = systemPowerStateName(power.DeepestSystemWakeRaw)
+	}
+	return power
+}
+
+func devicePowerStateFromRaw(state uint32) model.DevicePowerState {
 	switch state {
 	case 1:
-		return model.PowerD0, "SPDRP_DEVICE_POWER_DATA CM_POWER_DATA.PD_MostRecentPowerState=1 (D0)"
+		return model.PowerD0
 	case 2:
-		return model.PowerD1, "SPDRP_DEVICE_POWER_DATA CM_POWER_DATA.PD_MostRecentPowerState=2 (D1)"
+		return model.PowerD1
 	case 3:
-		return model.PowerD2, "SPDRP_DEVICE_POWER_DATA CM_POWER_DATA.PD_MostRecentPowerState=3 (D2)"
+		return model.PowerD2
 	case 4:
-		return model.PowerD3, "SPDRP_DEVICE_POWER_DATA CM_POWER_DATA.PD_MostRecentPowerState=4 (D3)"
+		return model.PowerD3
 	default:
-		return model.PowerUnknown, fmt.Sprintf("SPDRP_DEVICE_POWER_DATA CM_POWER_DATA.PD_MostRecentPowerState=%d (unknown)", state)
+		return model.PowerUnknown
 	}
+}
+
+func powerStateEvidence(power model.PowerData, size int) string {
+	if power.MostRecentPowerState == "" || power.MostRecentPowerState == model.PowerUnknown {
+		if size < 8 {
+			return fmt.Sprintf("SPDRP_DEVICE_POWER_DATA too short: %d bytes", size)
+		}
+		return fmt.Sprintf("SPDRP_DEVICE_POWER_DATA CM_POWER_DATA.PD_MostRecentPowerState=%d (unknown)", power.MostRecentPowerStateRaw)
+	}
+	return fmt.Sprintf("SPDRP_DEVICE_POWER_DATA CM_POWER_DATA.PD_MostRecentPowerState=%d (%s)", power.MostRecentPowerStateRaw, power.MostRecentPowerState)
+}
+
+func systemPowerStateName(raw uint32) string {
+	switch raw {
+	case 0:
+		return "PowerSystemUnspecified"
+	case 1:
+		return "PowerSystemWorking"
+	case 2:
+		return "PowerSystemSleeping1"
+	case 3:
+		return "PowerSystemSleeping2"
+	case 4:
+		return "PowerSystemSleeping3"
+	case 5:
+		return "PowerSystemHibernate"
+	case 6:
+		return "PowerSystemShutdown"
+	default:
+		return fmt.Sprintf("PowerSystemUnknown(%d)", raw)
+	}
+}
+
+type devNodeStatusInfo struct {
+	flags       uint32
+	problemCode uint32
+	names       []string
+	label       string
+}
+
+func devNodeStatus(devInst uint32) devNodeStatusInfo {
+	var flags uint32
+	var problem uint32
+	ret, _, _ := procCMGetDevNodeStatus.Call(
+		uintptr(unsafe.Pointer(&flags)),
+		uintptr(unsafe.Pointer(&problem)),
+		uintptr(devInst),
+		0,
+	)
+	if ret != crSuccess {
+		return devNodeStatusInfo{label: fmt.Sprintf("CM_Get_DevNode_Status failed: %d", ret)}
+	}
+	info := devNodeStatusInfo{flags: flags, names: statusFlagNames(flags), label: "OK"}
+	if flags&dnHasProblem != 0 {
+		info.problemCode = problem
+		info.label = fmt.Sprintf("problem %d", problem)
+	}
+	return info
+}
+
+func statusFlagNames(flags uint32) []string {
+	table := []struct {
+		bit  uint32
+		name string
+	}{
+		{0x00000001, "DN_ROOT_ENUMERATED"},
+		{0x00000002, "DN_DRIVER_LOADED"},
+		{0x00000004, "DN_ENUM_LOADED"},
+		{0x00000008, "DN_STARTED"},
+		{0x00000010, "DN_MANUAL"},
+		{0x00000020, "DN_NEED_TO_ENUM"},
+		{0x00000040, "DN_NOT_FIRST_TIME"},
+		{0x00000080, "DN_HARDWARE_ENUM"},
+		{0x00000100, "DN_LIAR"},
+		{0x00000200, "DN_HAS_MARK"},
+		{dnHasProblem, "DN_HAS_PROBLEM"},
+		{0x00000800, "DN_FILTERED"},
+		{0x00001000, "DN_MOVED"},
+		{0x00002000, "DN_DISABLEABLE"},
+		{0x00004000, "DN_REMOVABLE"},
+		{0x00008000, "DN_PRIVATE_PROBLEM"},
+		{0x00010000, "DN_MF_PARENT"},
+		{0x00020000, "DN_MF_CHILD"},
+		{0x00040000, "DN_WILL_BE_REMOVED"},
+	}
+	var names []string
+	for _, entry := range table {
+		if flags&entry.bit != 0 {
+			names = append(names, entry.name)
+		}
+	}
+	return names
+}
+
+func usbpcapHints(h uintptr, data *spDevInfoData, parentChain []string) model.USBPcapHints {
+	hints := model.USBPcapHints{
+		BulkInEndpoint:     "unknown",
+		BulkOutEndpoint:    "unknown",
+		EndpointConfidence: "unknown",
+	}
+	if bus := dwordProperty(h, data, spdrpBusNumber); bus != "" {
+		hints.BusNumber = bus
+	}
+	if address := dwordProperty(h, data, spdrpAddress); address != "" {
+		hints.DeviceAddress = address
+	}
+	for _, parent := range parentChain {
+		upper := strings.ToUpper(parent)
+		if strings.Contains(upper, "ROOT_HUB") || strings.Contains(upper, "USBHUB") {
+			hints.RootHub = parent
+			break
+		}
+	}
+	return hints
+}
+
+func dwordProperty(h uintptr, data *spDevInfoData, prop uint32) string {
+	buf, ok := registryProperty(h, data, prop)
+	if !ok || len(buf) < 4 {
+		return ""
+	}
+	return fmt.Sprintf("%d", binary.LittleEndian.Uint32(buf[:4]))
 }
 
 func registryProperty(h uintptr, data *spDevInfoData, prop uint32) ([]byte, bool) {

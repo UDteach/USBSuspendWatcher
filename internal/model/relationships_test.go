@@ -110,3 +110,53 @@ func TestEnrichDeviceRelationshipsFlagsParentLowPowerChildD0(t *testing.T) {
 		t.Fatalf("parent power state = %s, want D3", got)
 	}
 }
+
+func TestEnrichDeviceRelationshipsUsesAllPresentDeviceIndexForParents(t *testing.T) {
+	visible := []DeviceSnapshot{{
+		InstanceID:       `USB\VID_0403&PID_6001\FT123`,
+		ParentInstanceID: `USB\ROOT_HUB30\1`,
+		ParentChain: []string{
+			`USB\ROOT_HUB30\1`,
+			`PCI\VEN_8086&DEV_USBXHCI\3&11583659&0&A0`,
+			`ACPI\PNP0A08\0`,
+		},
+		PowerState: PowerD0,
+	}}
+	allPresent := []DeviceSnapshot{
+		{
+			InstanceID:         `USB\ROOT_HUB30\1`,
+			FriendlyName:       "USB Root Hub",
+			Service:            "USBHUB3",
+			Class:              "USB",
+			PowerState:         PowerD0,
+			PowerStateEvidence: "root hub evidence",
+		},
+		{
+			InstanceID:         `PCI\VEN_8086&DEV_USBXHCI\3&11583659&0&A0`,
+			FriendlyName:       "USB xHCI Host Controller",
+			Service:            "USBXHCI",
+			Class:              "USB",
+			PowerState:         PowerD3,
+			PowerStateEvidence: "xhci evidence",
+		},
+		{
+			InstanceID:         `ACPI\PNP0A08\0`,
+			FriendlyName:       "PCI Express Root Complex",
+			Service:            "ACPI",
+			Class:              "System",
+			PowerState:         PowerD0,
+			PowerStateEvidence: "acpi evidence",
+		},
+	}
+
+	devices := EnrichDeviceRelationships(visible, allPresent)
+	if len(devices[0].ParentStates) != 3 {
+		t.Fatalf("ParentStates length = %d, want 3: %#v", len(devices[0].ParentStates), devices[0].ParentStates)
+	}
+	if devices[0].ParentStates[1].Service != "USBXHCI" || devices[0].ParentStates[2].Class != "System" {
+		t.Fatalf("non-USB visible parent chain was not resolved from all-present index: %#v", devices[0].ParentStates)
+	}
+	if !devices[0].ParentLowPowerChildD0 {
+		t.Fatalf("xHCI D3 while child D0 should be flagged")
+	}
+}

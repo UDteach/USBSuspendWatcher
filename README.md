@@ -2,11 +2,11 @@
 
 USB Suspend Watch is an installer-free Windows desktop utility for watching connected USB devices and recording suspected USB Selective Suspend transitions.
 
-The v0.8.6 release uses one production-ready monitoring layer and two optional lab-only capture layers:
+The v0.8.7 release uses one production-ready monitoring layer and two optional lab-only capture layers:
 
-- Simple mode: runs without elevation, watches `WM_DEVICECHANGE`, polls SetupAPI, and reads `SPDRP_DEVICE_POWER_DATA`.
+- Simple mode: runs without elevation, watches `WM_DEVICECHANGE`, polls SetupAPI, resolves the full parent chain from the all-present device index, and reads `SPDRP_DEVICE_POWER_DATA`.
 - Experimental ETW mode: starts from the GUI button and may show UAC because Windows requires elevated rights for USB ETW sessions.
-- Optional USBPcap mode: starts an installed `USBPcapCMD.exe` to save a `.pcap` capture for the selected device's USBPcap device address when it can be matched, or all devices on the only available USBPcap interface when matching is unavailable.
+- Optional USBPcap mode: starts an installed `USBPcapCMD.exe` to save a `.pcapng` capture for the selected device's USBPcap device address when it can be matched, or all devices on the only available USBPcap interface when matching is unavailable.
 
 No driver, service, installer, bundled USBPcap binary, or telemetry is included. USBPcap capture is used only when USBPcap/Wireshark USBPcap is already installed or `USBPCAP_CMD` points to `USBPcapCMD.exe`.
 
@@ -15,6 +15,7 @@ No driver, service, installer, bundled USBPcap binary, or telemetry is included.
 - Desktop GUI with a Japanese/English language dropdown.
 - Shows a monitoring status summary with connected USB count, low-power device count, suspected suspend count, resume count, privilege, and log path.
 - Lists currently connected USB devices as a tree-like list with parent/hub rows above their child device rows, including USB3 hub, xHCI, USB4 router, Thunderbolt, and USB-C UCSI topology hints when Windows exposes them.
+- Adds long-form identity columns for correlation with ETW, USBPcap, Event Viewer, and `pnputil`: InstanceId, ParentInstanceId, ContainerId, Class, ClassGuid, Service, Driver, VID, PID, LocationPath, BusReportedDeviceDesc, and PDO Name.
 - Defaults to an `FTDI COM only` target filter so FTDI-style USB serial adapters and their related converter nodes are easier to inspect. Switch to `All USB` to see every USB device.
 - Groups FTDI adapter candidates by logical evidence so `USB Serial Port (COMxx)` and `USB Serial Converter` can be inspected together without assuming they are definitely the same physical device.
 - Lets you enable or disable monitoring per connected USB device, parent hub, USB3 hub, USB4 router, or USB-C topology row with checkboxes, using specific identity keys before broader fallback evidence.
@@ -24,12 +25,14 @@ No driver, service, installer, bundled USBPcap binary, or telemetry is included.
 - Separates the diagnostic summary from pretty-printed raw JSON evidence so the exact D0/D3, parent-state, wake, and same-device-candidate evidence can be copied.
 - Opens a dedicated device details window when a connected USB device row is double-clicked.
 - Starts and stops optional USBPcap captures from the GUI for the selected connected USB device, parent hub, or watched target. Captures are saved under the app log folder with a companion metadata JSON file.
+- Saves per-session device snapshots, events, ETW, USBPcap, and network statistics with the same Correlation ID.
 - Records PnP arrival and removal events.
 - Records system sleep and wake broadcasts so USB changes can be correlated with PC suspend/resume.
 - Captures `powercfg /lastwake` after wake broadcasts when Windows allows it and labels wake confidence as high, medium, low, or unknown based on available evidence.
 - Filters the visible event timeline by event type, confidence, and text search.
 - Filters the visible event timeline by display level; the default hides noisy `info` events.
 - Normalizes events into:
+  - `dstate_transition`
   - `power_d0_exit`
   - `power_d0_entry`
   - `idle_notification`
@@ -39,6 +42,14 @@ No driver, service, installer, bundled USBPcap binary, or telemetry is included.
   - `resume`
   - `system_sleep`
   - `system_wake`
+  - `parent_dstate_mismatch`
+  - `problem_code`
+  - `status_changed`
+  - `device_missing`
+  - `device_reenumerated`
+  - `last_seen_stale`
+  - `network_stats`
+  - `detailed_logging_started`
 - Adds `source` and `confidence` to each event.
 - Saves local JSON Lines logs.
 - Exports the filtered visible event timeline.
@@ -61,7 +72,7 @@ This is an inference from Windows device power data, not a kernel trace.
 
 ### Experimental ETW Mode
 
-The ETW helper is not considered production-ready in v0.8.6 because provider behavior differs by Windows build, permissions, and USB stack provider.
+The ETW helper is not considered production-ready in v0.8.7 because provider behavior differs by Windows build, permissions, and USB stack provider.
 
 For lab testing, click `Start ETW (experimental)`. Depending on the machine policy, this may show UAC. If UAC appears, approve it to start the elevated helper process.
 If no helper log appears within 45 seconds, the GUI records a retryable error so the app does not wait forever. The helper enables USB ETW providers one by one; if one provider is unavailable, the others can still run and the unavailable provider is written to the ETW helper log.
@@ -71,16 +82,16 @@ The helper subscribes to:
 - `Microsoft-Windows-USB-USBHUB3`
 - `Microsoft-Windows-USB-UCX`
 - `Microsoft-Windows-USB-USBXHCI`
+- `Microsoft-Windows-Kernel-PnP`
+- `Microsoft-Windows-Kernel-Power`
 
-It attempts to focus on USB power-related events by enabling the `Power` provider keyword, including USBHUB3 D0 entry/exit and idle-notification events. The GUI hides and does not retain `info` events by default; choose `All` in the timeline level filter before starting ETW when you need raw ETW chatter for lab debugging.
+It attempts to focus USB providers on power-related events by enabling the `Power` provider keyword, including USBHUB3 D0 entry/exit and idle-notification events. The helper also starts a `logman` `.etl` trace with USBHUB3, UCX, USBXHCI, Kernel-PnP, and Kernel-Power when permissions allow it. The GUI hides and does not retain `info` events by default; choose `All` in the timeline level filter before starting ETW when you need raw ETW chatter for lab debugging.
 
 For lab-only USB rundown capture, set this additional environment variable before starting ETW:
 
 ```powershell
 $env:USB_SUSPEND_WATCH_ETW_RUNDOWN = "1"
 ```
-
-For production-grade ETW validation today, use Microsoft `logman` traces and compare them with this app's simple-mode timeline.
 
 When the GUI starts an elevated helper, the status area keeps showing the GUI's own privilege and adds the helper privilege once the helper writes its startup log. This makes it clear whether the GUI is still a standard-user process while the ETW helper is actually elevated.
 
@@ -96,7 +107,7 @@ The app looks for `USBPcapCMD.exe` in this order:
 
 If USBPcap exposes an extcap device list that matches the selected COM port, serial, VID/PID, or device name, the app starts USBPcap with `--devices <address>`. If it cannot prove a device-address match and USBPcap exposes only one interface, it falls back to `-A` and records a warning because sibling device traffic can be included. If multiple USBPcap interfaces exist and none matches the selected target, the app refuses to guess the Root Hub.
 
-USBPcap is a software URB capture, not a hardware bus analyzer. The resulting `.pcap` is intended to be opened in Wireshark. Captures may contain payloads from the selected device and, on Root Hub fallback, other devices on the same hub, so treat the files as sensitive diagnostic data.
+USBPcap is a software URB capture, not a hardware bus analyzer. The resulting `.pcapng` is intended to be opened in Wireshark. Captures may contain payloads from the selected device and, on Root Hub fallback, other devices on the same hub, so treat the files as sensitive diagnostic data.
 
 ## Device Evidence And UI Layout
 
@@ -115,6 +126,8 @@ The selected-device diagnostic area includes the evidence used for simple-mode p
 
 - `SPDRP_DEVICE_POWER_DATA` raw bytes.
 - `CM_POWER_DATA.PD_MostRecentPowerState`, mapped to D0/D1/D2/D3.
+- `CM_POWER_DATA` major fields: `PD_Capabilities`, `PD_D1Latency`, `PD_D2Latency`, `PD_D3Latency`, `PD_PowerStateMapping`, and `PD_DeepestSystemWake`.
+- Config Manager status from `CM_Get_DevNode_Status`, including DN flags and ProblemCode when `DN_HAS_PROBLEM` is set.
 - Previous/current power transition evidence such as `D0 -> D3` or `D3 -> D0` in event details and selected-device sequences.
 - Compact transition evidence in the visible event timeline, so rows show both what changed and the source evidence used for the judgment.
 - COM port name from the device registry `PortName` value when available.
@@ -127,8 +140,12 @@ The selected-device diagnostic area includes the evidence used for simple-mode p
 - A line-drawn parent/hub tree that shows parent hubs above the selected device and related converter/port candidates below it.
 - Connected-at, last-changed, and recent per-device event sequence from the current app session.
 - Wake correlation for nearby USB/PnP/D0/D3 events and `powercfg /lastwake` output after PC resume.
+- Network adapter statistics for USB network-class chains, including interface index, link state, inbound/outbound errors, and discarded packets.
+- Diagnostic cause candidates for USB power-management, NDIS/driver, USB transfer stall, and dongle FW/PHY hypotheses. These are candidates, not definitive root causes.
 
 FTDI-style USB serial devices that expose both `USB Serial Port (COMxx)` and `USB Serial Converter` can share VID/PID. The app now labels them as the same physical-adapter candidate only when it can match VID/PID plus serial, parent instance, or location paths. VID/PID alone is not enough and is not treated as same-device evidence.
+
+`PD_MostRecentPowerState=D0` does not guarantee that communication is possible. Parent Hub/xHCI/USB4 Router state, ETW, USBPcap, and network statistics should be correlated before deciding whether the failure is USB power management, USB transfer, NDIS/driver, or dongle firmware/PHY. `PD_MostRecentPowerState=D3` also does not distinguish D3hot from D3cold.
 
 The app does not infer historical plug/unplug or D0/D3 transitions from before startup. It separates the current SetupAPI snapshot from events observed in the current session.
 
@@ -142,11 +159,21 @@ If that location is not writable, logs fall back to:
 %LOCALAPPDATA%\UsbSuspendWatch\logs
 ```
 
-Each log line is one JSON object.
-Power transition and PnP events include a `raw` object with the SetupAPI evidence above. ETW events include provider properties in the same `raw` object. Wake events may include `lastwake`, `lastwake_error`, `wake_confidence`, `wake_reasons`, and `wake_correlation`.
-USBPcap events may include `usbpcap_cmd`, `usbpcap_args`, `usbpcap_interface`, `usbpcap_device_addresses`, `usbpcap_output`, `usbpcap_metadata`, `usbpcap_capture_all`, `usbpcap_match_reasons`, and `usbpcap_warning`.
+Per-session log names use this shape:
 
-New v0.8.2 raw keys are additive and keep existing JSONL compatibility. They may include `diagnostic_score`, `diagnostic_reasons`, `session_started_at`, and `diagnostic_summary`.
+```text
+usb_watch_<timestamp>_<correlation>_device.jsonl
+usb_watch_<timestamp>_<correlation>_events.jsonl
+usb_watch_<timestamp>_<correlation>_etw.etl
+usb_watch_<timestamp>_<correlation>_usbpcap.pcapng
+usb_watch_<timestamp>_<correlation>_net.jsonl
+```
+
+Each log line is one JSON object. The device snapshot log is written every 5 seconds, and switches to 1 second for 60 seconds after anomalies such as D-state transitions, parent mismatch, ProblemCode/status changes, disappearance, re-enumeration candidates, or errors.
+Power transition and PnP events include a `raw` object with the SetupAPI evidence above. ETW events include provider properties in the same `raw` object. Wake events may include `lastwake`, `lastwake_error`, `wake_confidence`, `wake_reasons`, and `wake_correlation`.
+USBPcap events may include `usbpcap_cmd`, `usbpcap_args`, `usbpcap_interface`, `usbpcap_device_addresses`, `usbpcap_output`, `usbpcap_metadata`, `usbpcap_capture_all`, `usbpcap_match_reasons`, `usbpcap_warning`, root-hub hints, bus/device-address hints, and endpoint fields. Endpoint fields are `unknown` when Windows/USBPcap cannot prove them.
+
+New raw keys are additive and keep existing JSONL compatibility. They may include `diagnostic_score`, `diagnostic_reasons`, `session_started_at`, `correlation_id`, `diagnostic_summary`, `diagnostic_causes`, `parent_states`, `status_flags`, `problem_code`, `config_manager_error_code`, `usbpcap_*`, and `wake_*`.
 
 ## Build
 
@@ -178,7 +205,7 @@ go test ./...
 go vet ./...
 go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
-.\build.ps1 -Version v0.8.6
+.\build.ps1 -Version v0.8.7
 ```
 
 `go test -race` requires CGO and a C compiler on Windows. The release package is built with `CGO_ENABLED=0`.
@@ -187,6 +214,12 @@ go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
 
 - [USB Event Tracing for Windows](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-event-tracing-for-windows)
 - [How to capture a USB event trace with Logman](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/how-to-capture-a-usb-event-trace)
+- [SetupDiGetClassDevsW](https://learn.microsoft.com/en-us/windows/win32/api/setupapi/nf-setupapi-setupdigetclassdevsw)
+- [SetupDiGetDeviceRegistryPropertyW](https://learn.microsoft.com/en-us/windows/win32/api/setupapi/nf-setupapi-setupdigetdeviceregistrypropertyw)
+- [DEVPKEY_Device_PowerData](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/devpkey-device-powerdata)
+- [CM_POWER_DATA](https://learn.microsoft.com/nl-be/windows-hardware/drivers/ddi/wdm/ns-wdm-cm_power_data_s)
+- [CM_Get_DevNode_Status](https://learn.microsoft.com/en-us/windows/win32/api/cfgmgr32/nf-cfgmgr32-cm_get_devnode_status)
+- [Device Low-Power States](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/device-sleeping-states)
 - [Microsoft USBView sample](https://learn.microsoft.com/en-us/samples/microsoft/windows-driver-samples/usbview-sample-application/)
 - [USBPcap for Windows](https://github.com/desowin/usbpcap)
 - [Wireshark USB capture setup](https://wiki.wireshark.org/CaptureSetup/USB)

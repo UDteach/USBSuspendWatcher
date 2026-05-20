@@ -12,10 +12,10 @@ func TestNormalizePowerTransitionD0Exit(t *testing.T) {
 	curr.LastSeen = time.Unix(10, 0)
 
 	events := NormalizePowerTransition(prev, curr)
-	if len(events) != 2 {
-		t.Fatalf("expected two events, got %d", len(events))
+	if len(events) != 3 {
+		t.Fatalf("expected three events, got %d", len(events))
 	}
-	if events[0].Type != EventPowerD0Exit || events[1].Type != EventSuspectSuspend {
+	if events[0].Type != EventDStateTransition || events[1].Type != EventPowerD0Exit || events[2].Type != EventSuspectSuspend {
 		t.Fatalf("unexpected events: %#v", events)
 	}
 }
@@ -27,10 +27,10 @@ func TestNormalizePowerTransitionD0Entry(t *testing.T) {
 	curr.LastSeen = time.Unix(20, 0)
 
 	events := NormalizePowerTransition(prev, curr)
-	if len(events) != 2 {
-		t.Fatalf("expected two events, got %d", len(events))
+	if len(events) != 3 {
+		t.Fatalf("expected three events, got %d", len(events))
 	}
-	if events[0].Type != EventPowerD0Entry || events[1].Type != EventResume {
+	if events[0].Type != EventDStateTransition || events[1].Type != EventPowerD0Entry || events[2].Type != EventResume {
 		t.Fatalf("unexpected events: %#v", events)
 	}
 }

@@ -51,6 +51,13 @@ func NewEventLoggerWithPrefix(dir, prefix string) (*EventLogger, error) {
 		prefix = "usb-suspend-watch"
 	}
 	path := PathForPrefix(dir, prefix, time.Now())
+	return NewEventLoggerAtPath(path)
+}
+
+func NewEventLoggerAtPath(path string) (*EventLogger, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return nil, err
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, err

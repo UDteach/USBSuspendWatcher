@@ -8,17 +8,21 @@ import (
 func TestUSBProvidersUsePlainPowerEnableParameters(t *testing.T) {
 	t.Setenv("USB_SUSPEND_WATCH_ETW_RUNDOWN", "")
 	providers := providers()
-	if len(providers) != 3 {
-		t.Fatalf("providers length = %d, want 3", len(providers))
+	if len(providers) != 5 {
+		t.Fatalf("providers length = %d, want 5", len(providers))
 	}
-	for _, provider := range providers {
+	for i, provider := range providers {
 		if provider.GUID.IsZero() {
 			t.Fatalf("%s has a zero GUID", provider.Name)
 		}
 		if provider.EnableLevel != 0xff {
 			t.Fatalf("%s EnableLevel = %#x, want 0xff", provider.Name, provider.EnableLevel)
 		}
-		if provider.MatchAnyKeyword != 0x8 {
+		wantKeyword := uint64(0x8)
+		if i >= 3 {
+			wantKeyword = 0xFFFFFFFF
+		}
+		if provider.MatchAnyKeyword != wantKeyword {
 			t.Fatalf("%s MatchAnyKeyword = %#x, want Power", provider.Name, provider.MatchAnyKeyword)
 		}
 		if provider.MatchAllKeyword != 0 {

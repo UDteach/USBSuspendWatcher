@@ -115,9 +115,18 @@ func TestFTDICOMOnlyTargetFilter(t *testing.T) {
 			RelatedInstanceIDs: []string{`FTDIPORT\VID_0403+PID_6001+FT123\0000`},
 		},
 	}
+	pcapParent := model.Event{
+		Type:       model.EventInfo,
+		Source:     model.SourceUSBPcap,
+		Confidence: model.ConfidenceMedium,
+		Device: model.DeviceSnapshot{
+			FriendlyName: "USB Root Hub",
+			Service:      "USBHUB3",
+		},
+	}
 
-	filtered := filterEvents([]model.Event{ftdi, other, converter}, eventFilter{TargetIndex: 1})
-	if len(filtered) != 2 || filtered[0].Device.COMPort != "COM52" || filtered[1].Device.RelationRole != "converter" {
+	filtered := filterEvents([]model.Event{ftdi, other, converter, pcapParent}, eventFilter{TargetIndex: 1})
+	if len(filtered) != 3 || filtered[0].Device.COMPort != "COM52" || filtered[1].Device.RelationRole != "converter" || filtered[2].Source != model.SourceUSBPcap {
 		t.Fatalf("FTDI COM filter returned %#v", filtered)
 	}
 
@@ -467,6 +476,16 @@ func TestETWStartupTimeout(t *testing.T) {
 func TestLanguageStringsUseSingleLanguageLabels(t *testing.T) {
 	ja := stringsFor(languageJapanese)
 	en := stringsFor(languageEnglish)
+	jaFirstColumns := ja.deviceColumnTitles
+	enFirstColumns := en.deviceColumnTitles
+	if len(jaFirstColumns) > 9 {
+		jaFirstColumns = jaFirstColumns[:9]
+	}
+	if len(enFirstColumns) > 9 {
+		enFirstColumns = enFirstColumns[:9]
+	}
+	ja.deviceColumnTitles = jaFirstColumns
+	en.deviceColumnTitles = enFirstColumns
 
 	if ja.refreshButton != "更新" {
 		t.Fatalf("unexpected Japanese refresh label: %q", ja.refreshButton)
@@ -477,7 +496,7 @@ func TestLanguageStringsUseSingleLanguageLabels(t *testing.T) {
 	if len(ja.deviceColumnTitles) != 9 || ja.deviceColumnTitles[1] != "状態" || ja.deviceColumnTitles[7] != "接続時刻" {
 		t.Fatalf("Japanese device columns should include a state column: %#v", ja.deviceColumnTitles)
 	}
-	if len(en.deviceColumnTitles) != 9 || en.deviceColumnTitles[1] != "State" || en.deviceColumnTitles[7] != "Connected" {
+	if len(enFirstColumns) != 9 || enFirstColumns[1] != "State" || enFirstColumns[7] != "Connected" {
 		t.Fatalf("English device columns should include a state column: %#v", en.deviceColumnTitles)
 	}
 	if len(ja.levelOptions) != 3 || ja.levelOptions[0] != "Info以外" {
@@ -494,5 +513,35 @@ func TestLanguageStringsUseSingleLanguageLabels(t *testing.T) {
 	}
 	if ja.refreshButton == en.refreshButton {
 		t.Fatalf("language labels should differ")
+	}
+}
+
+func TestDeviceColumnsIncludeV087Identifiers(t *testing.T) {
+	en := stringsFor(languageEnglish)
+	want := []string{
+		"InstanceId",
+		"ParentInstanceId",
+		"ContainerId",
+		"Class",
+		"ClassGuid",
+		"Service",
+		"Driver",
+		"VID",
+		"PID",
+		"LocationPath",
+		"BusReportedDeviceDesc",
+		"PDO Name",
+	}
+	for _, title := range want {
+		found := false
+		for _, got := range en.deviceColumnTitles {
+			if got == title {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("device columns missing %q: %#v", title, en.deviceColumnTitles)
+		}
 	}
 }

@@ -18,10 +18,15 @@ func formatDevice(d model.DeviceSnapshot, language displayLanguage, monitored bo
 	lines := []string{
 		text.deviceDetailsTitle,
 		"Diagnostic summary: " + strings.Join(diagnosticSummary(d, history), " | "),
+		"Cause candidates: " + formatDiagnosticCauses(model.DiagnosticCauses(d, history)),
 		text.deviceMonitoring + ": " + monitoring,
 		text.deviceState + ": " + deviceCurrentState(d, monitored, language),
 		text.deviceName + ": " + d.DisplayName(),
+		"Important: D0 does not guarantee communication. Check parent Hub/xHCI/USB4 Router, USBPcap, and ETW logs.",
+		"Important: D3hot/D3cold cannot be determined from PD_MostRecentPowerState alone.",
 		"Instance ID: " + d.InstanceID,
+		"Parent instance ID: " + d.ParentInstanceID,
+		"Container ID: " + d.ContainerID,
 		"Hardware ID: " + d.HardwareID,
 		"VID/PID: " + d.VIDPID(),
 		"Revision: " + d.Revision,
@@ -36,15 +41,24 @@ func formatDevice(d model.DeviceSnapshot, language displayLanguage, monitored bo
 		"Related instance IDs: " + strings.Join(d.RelatedInstanceIDs, " | "),
 		text.devicePowerState + ": " + string(d.PowerState),
 		"Power evidence: " + d.PowerStateEvidence,
+		"CM_POWER_DATA: " + formatPowerData(d.PowerData),
 		"Power data hex: " + d.PowerDataHex,
 		text.deviceManufacturer + ": " + d.Manufacturer,
 		"Service: " + d.Service,
 		"Class: " + d.Class,
+		"Class GUID: " + d.ClassGuid,
+		"Driver: " + d.Driver,
+		"Bus reported device description: " + d.BusReportedDeviceDesc,
+		"Status: " + d.Status,
+		fmt.Sprintf("ConfigManagerErrorCode: %d", d.ConfigManagerErrorCode),
+		fmt.Sprintf("ProblemCode: %d", d.ProblemCode),
+		fmt.Sprintf("DN status flags: 0x%08X %s", d.StatusFlags, strings.Join(d.StatusFlagNames, " | ")),
 		"Enumerator: " + d.Enumerator,
 		text.deviceLocation + ": " + d.Location,
 		"Location paths: " + strings.Join(d.LocationPaths, " | "),
 		"Physical device object: " + d.PhysicalDeviceObjectName,
-		"Parent instance ID: " + d.ParentInstanceID,
+		"USBPcap hints: " + formatUSBPcapHints(d.USBPcapHints),
+		"Correlation ID: " + d.CorrelationID,
 		"Parent / hub chain: " + strings.Join(d.ParentChain, " <- "),
 		"Parent / hub states: " + formatParentStates(d.ParentStates),
 		"USB3/USB4/Type-C topology hints: " + strings.Join(model.TopologyHints(d), " | "),
@@ -210,6 +224,60 @@ func formatDiagnosticScore(d model.DeviceSnapshot) string {
 		return "0% | " + reasons
 	}
 	return fmt.Sprintf("%d%% | %s", d.DiagnosticScore, reasons)
+}
+
+func formatPowerData(power model.PowerData) string {
+	if power.Size == 0 && power.MostRecentPowerState == "" {
+		return "unavailable"
+	}
+	parts := []string{
+		fmt.Sprintf("PD_MostRecentPowerState=%d(%s)", power.MostRecentPowerStateRaw, power.MostRecentPowerState),
+		fmt.Sprintf("PD_Capabilities=0x%08X", power.Capabilities),
+		fmt.Sprintf("PD_D1Latency=%d", power.D1Latency),
+		fmt.Sprintf("PD_D2Latency=%d", power.D2Latency),
+		fmt.Sprintf("PD_D3Latency=%d", power.D3Latency),
+		"PD_PowerStateMapping=" + formatDevicePowerMapping(power.PowerStateMapping),
+		fmt.Sprintf("PD_DeepestSystemWake=%d(%s)", power.DeepestSystemWakeRaw, power.DeepestSystemWake),
+	}
+	if power.D3HotColdNote != "" {
+		parts = append(parts, power.D3HotColdNote)
+	}
+	return strings.Join(parts, " | ")
+}
+
+func formatDevicePowerMapping(states []model.DevicePowerState) string {
+	if len(states) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(states))
+	for i, state := range states {
+		parts = append(parts, fmt.Sprintf("S%d=%s", i, state))
+	}
+	return strings.Join(parts, ",")
+}
+
+func formatUSBPcapHints(hints model.USBPcapHints) string {
+	parts := []string{
+		"root_hub=" + emptyAsUnknown(hints.RootHub),
+		"interface=" + emptyAsUnknown(hints.Interface),
+		"bus=" + emptyAsUnknown(hints.BusNumber),
+		"address=" + emptyAsUnknown(hints.DeviceAddress),
+		"bulk_in=" + emptyAsUnknown(hints.BulkInEndpoint),
+		"bulk_out=" + emptyAsUnknown(hints.BulkOutEndpoint),
+		"endpoint_confidence=" + emptyAsUnknown(hints.EndpointConfidence),
+	}
+	return strings.Join(parts, " | ")
+}
+
+func formatDiagnosticCauses(causes []model.DiagnosticCause) string {
+	if len(causes) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(causes))
+	for _, cause := range causes {
+		parts = append(parts, fmt.Sprintf("%s (%s): %s", cause.Kind, cause.Confidence, cause.Reason))
+	}
+	return strings.Join(parts, " | ")
 }
 
 func emptyAsUnknown(value string) string {

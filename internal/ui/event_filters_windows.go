@@ -49,6 +49,9 @@ func eventMatchesTarget(event model.Event, index int) bool {
 	if index != 1 {
 		return true
 	}
+	if event.Source == model.SourceUSBPcap || isSystemPowerEvent(event) {
+		return true
+	}
 	if !hasDeviceIdentity(event.Device) {
 		return true
 	}
@@ -124,6 +127,13 @@ func eventIsImportant(event model.Event) bool {
 	switch event.Type {
 	case model.EventSuspectSuspend,
 		model.EventPowerD0Exit,
+		model.EventDStateTransition,
+		model.EventParentMismatch,
+		model.EventProblemCode,
+		model.EventStatusChanged,
+		model.EventDeviceMissing,
+		model.EventDeviceReenum,
+		model.EventLastSeenStale,
 		model.EventIdleNotification,
 		model.EventResume,
 		model.EventPowerD0Entry,
@@ -159,6 +169,10 @@ func eventSearchText(event model.Event) string {
 		event.Device.Manufacturer,
 		event.Device.Service,
 		event.Device.Class,
+		event.Device.ClassGuid,
+		event.Device.Driver,
+		event.Device.ContainerID,
+		event.Device.BusReportedDeviceDesc,
 		event.Device.Enumerator,
 		event.Device.Serial,
 		event.Device.ParentInstanceID,
@@ -188,6 +202,22 @@ func eventMark(event model.Event, language displayLanguage) string {
 		return "pcap"
 	}
 	switch event.Type {
+	case model.EventParentMismatch:
+		return "warning"
+	case model.EventDStateTransition:
+		if model.IsLowPowerState(event.Device.PowerState) {
+			return "low-power"
+		}
+		if event.Device.PowerState == model.PowerD0 {
+			return "active"
+		}
+		return "D-state"
+	case model.EventProblemCode, model.EventStatusChanged, model.EventLastSeenStale:
+		return "warning"
+	case model.EventDeviceMissing:
+		return "missing"
+	case model.EventDeviceReenum:
+		return "reenum"
 	case model.EventSuspectSuspend, model.EventPowerD0Exit, model.EventIdleNotification:
 		if event.Type == model.EventPowerD0Exit {
 			return "low-power"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ type Config struct {
 	Session   string
 	StopFile  string
 	ParentPID int
+	ETLPath   string
 }
 
 func Run(cfg Config) int {
@@ -67,6 +69,36 @@ func Run(cfg Config) int {
 	if parentWatch != nil {
 		defer parentWatch.Close()
 	}
+	fileSession := ""
+	if cfg.ETLPath != "" {
+		fileSession = cfg.Session + "-File"
+		if err := startLogmanTrace(fileSession, cfg.ETLPath); err != nil {
+			appendEvent(model.Event{
+				Time:       time.Now(),
+				Type:       model.EventInfo,
+				Source:     model.SourceApp,
+				Confidence: model.ConfidenceLow,
+				Message:    "ETW .etl logman trace unavailable: " + err.Error(),
+				Raw: map[string]string{
+					"etl_path": cfg.ETLPath,
+				},
+			})
+		} else {
+			defer stopLogmanTrace(fileSession)
+			appendEvent(model.Event{
+				Time:       time.Now(),
+				Type:       model.EventInfo,
+				Source:     model.SourceApp,
+				Confidence: model.ConfidenceHigh,
+				Message:    "ETW .etl logman trace started",
+				Raw: map[string]string{
+					"etl_path":        cfg.ETLPath,
+					"logman_session":  fileSession,
+					"usb4_candidates": strings.Join(usb4ProviderCandidates(), ","),
+				},
+			})
+		}
+	}
 
 	session, enabledProviders, err := startUSBSession(cfg.Session, appendEvent)
 	if err != nil {
@@ -103,6 +135,7 @@ func Run(cfg Config) int {
 		Raw: map[string]string{
 			"helper_admin": fmt.Sprint(platform.IsAdmin()),
 			"providers":    strings.Join(enabledProviders, ","),
+			"etl_path":     cfg.ETLPath,
 		},
 	})
 
@@ -174,6 +207,22 @@ func startUSBSession(name string, appendEvent func(model.Event)) (*etw.RealTimeS
 	return session, enabled, nil
 }
 
+func startLogmanTrace(sessionName, etlPath string) error {
+	args := []string{"start", sessionName, "-ets", "-o", etlPath}
+	for _, providerName := range logmanProviderNames() {
+		args = append(args, "-p", providerName, "0xFFFFFFFF", "0x5")
+	}
+	out, err := exec.Command("logman", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func stopLogmanTrace(sessionName string) {
+	_ = exec.Command("logman", "stop", sessionName, "-ets").Run()
+}
+
 type parentWatch struct {
 	handle windows.Handle
 }
@@ -211,6 +260,25 @@ func providers() []etw.Provider {
 		provider("Microsoft-Windows-USB-USBHUB3", usbPowerKeywords),
 		provider("Microsoft-Windows-USB-UCX", usbPowerKeywords),
 		provider("Microsoft-Windows-USB-USBXHCI", usbPowerKeywords),
+		provider("Microsoft-Windows-Kernel-PnP", 0xFFFFFFFF),
+		provider("Microsoft-Windows-Kernel-Power", 0xFFFFFFFF),
+	}
+}
+
+func logmanProviderNames() []string {
+	return []string{
+		"Microsoft-Windows-USB-USBHUB3",
+		"Microsoft-Windows-USB-UCX",
+		"Microsoft-Windows-USB-USBXHCI",
+		"Microsoft-Windows-Kernel-PnP",
+		"Microsoft-Windows-Kernel-Power",
+	}
+}
+
+func usb4ProviderCandidates() []string {
+	return []string{
+		"Microsoft-Windows-USB4-HostRouter",
+		"Microsoft-Windows-USB4-DeviceRouter",
 	}
 }
 
@@ -225,9 +293,11 @@ func usbProviderKeywords() uint64 {
 
 func provider(name string, keywords uint64) etw.Provider {
 	knownGUIDs := map[string]string{
-		"Microsoft-Windows-USB-USBHUB3": "{ac52ad17-cc01-4f85-8df5-4dce4333c99b}",
-		"Microsoft-Windows-USB-UCX":     "{36da592d-e43a-4e28-af6f-4bc57c5a11e8}",
-		"Microsoft-Windows-USB-USBXHCI": "{30e1d284-5d88-459c-83fd-6345b39b19ec}",
+		"Microsoft-Windows-USB-USBHUB3":  "{ac52ad17-cc01-4f85-8df5-4dce4333c99b}",
+		"Microsoft-Windows-USB-UCX":      "{36da592d-e43a-4e28-af6f-4bc57c5a11e8}",
+		"Microsoft-Windows-USB-USBXHCI":  "{30e1d284-5d88-459c-83fd-6345b39b19ec}",
+		"Microsoft-Windows-Kernel-PnP":   "{9c205a39-1250-487d-abd7-e831c6290539}",
+		"Microsoft-Windows-Kernel-Power": "{331c3b3a-2005-44c2-ac5e-77220c37d6b4}",
 	}
 	if guid := knownGUIDs[name]; guid != "" {
 		return providerFromGUID(name, guid, keywords, 0)

@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.8.7
+
+- Expanded SetupAPI collection to keep an all-present-devices index for parent resolution while still showing USB-related chains, allowing ACPI / PCI / xHCI / USB4 parent nodes to resolve instead of stopping at a USB-only snapshot.
+- Added device identity fields to the connected USB tree, details, raw JSON, and snapshot logs: instance ID, parent instance ID, container ID, class GUID, driver, bus-reported description, PDO name, VID, PID, and location path.
+- Decodes `SPDRP_DEVICE_POWER_DATA` as `CM_POWER_DATA`, including `PD_MostRecentPowerState`, capabilities, D1/D2/D3 latencies, power-state mapping, deepest system wake, and the explicit note that `PD_MostRecentPowerState` cannot distinguish D3hot from D3cold.
+- Adds Config Manager status collection via `CM_Get_DevNode_Status`, including DN flags, problem code, and ConfigManagerErrorCode, with events for problem-code and status changes.
+- Adds session Correlation IDs and per-session file names for device snapshots, events, ETW `.etl`, USBPcap `.pcapng`, and network-statistics logs.
+- Writes periodic device tree snapshots every 5 seconds, switching to 1-second detailed logging for 60 seconds after D-state changes, parent mismatch, ProblemCode/status changes, missing devices, re-enumeration candidates, or errors.
+- Emits new timeline events for D-state transitions, parent D-state mismatch, problem code, status change, missing device, re-enumeration candidate, last-seen stale, network statistics, and detailed logging start.
+- Extends the ETW helper with optional `logman` `.etl` capture for USBHUB3, UCX, USBXHCI, Kernel-PnP, and Kernel-Power alongside the existing real-time JSONL tail.
+- Adds USBPcap metadata hints for root hub, interface, bus/device address, endpoint fields, and unknown endpoint confidence when Windows/USBPcap cannot prove endpoint information.
+- Captures PowerShell `Get-NetAdapter` / `Get-NetAdapterStatistics` data for USB network-class chains and logs it with the same timestamp/correlation ID.
+- Adds diagnostic-cause candidates for USB power-management, NDIS/driver, USB transfer stall, and dongle FW/PHY hypotheses without treating any one signal as a definitive cause.
+
 ## v0.8.6
 
 - Added optional USBPcap capture controls for the selected connected USB device, parent hub, or watched target.

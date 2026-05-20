@@ -19,6 +19,15 @@ const (
 	EventResume           EventType = "resume"
 	EventSystemSleep      EventType = "system_sleep"
 	EventSystemWake       EventType = "system_wake"
+	EventDStateTransition EventType = "dstate_transition"
+	EventParentMismatch   EventType = "parent_dstate_mismatch"
+	EventProblemCode      EventType = "problem_code"
+	EventStatusChanged    EventType = "status_changed"
+	EventDeviceMissing    EventType = "device_missing"
+	EventDeviceReenum     EventType = "device_reenumerated"
+	EventLastSeenStale    EventType = "last_seen_stale"
+	EventNetworkStats     EventType = "network_stats"
+	EventDetailedLogging  EventType = "detailed_logging_started"
 	EventInfo             EventType = "info"
 	EventError            EventType = "error"
 )
@@ -62,6 +71,10 @@ type DeviceSnapshot struct {
 	Manufacturer             string              `json:"manufacturer,omitempty"`
 	Service                  string              `json:"service,omitempty"`
 	Class                    string              `json:"class,omitempty"`
+	ClassGuid                string              `json:"class_guid,omitempty"`
+	Driver                   string              `json:"driver,omitempty"`
+	ContainerID              string              `json:"container_id,omitempty"`
+	BusReportedDeviceDesc    string              `json:"bus_reported_device_desc,omitempty"`
 	Enumerator               string              `json:"enumerator,omitempty"`
 	Location                 string              `json:"location,omitempty"`
 	LocationPaths            []string            `json:"location_paths,omitempty"`
@@ -84,9 +97,17 @@ type DeviceSnapshot struct {
 	PID                      string              `json:"pid,omitempty"`
 	Revision                 string              `json:"revision,omitempty"`
 	Serial                   string              `json:"serial,omitempty"`
+	ConfigManagerErrorCode   uint32              `json:"config_manager_error_code,omitempty"`
+	ProblemCode              uint32              `json:"problem_code,omitempty"`
+	StatusFlags              uint32              `json:"status_flags,omitempty"`
+	StatusFlagNames          []string            `json:"status_flag_names,omitempty"`
+	Status                   string              `json:"status,omitempty"`
 	PowerState               DevicePowerState    `json:"power_state"`
+	PowerData                PowerData           `json:"power_data,omitempty"`
 	PowerStateEvidence       string              `json:"power_state_evidence,omitempty"`
 	PowerDataHex             string              `json:"power_data_hex,omitempty"`
+	USBPcapHints             USBPcapHints        `json:"usbpcap_hints,omitempty"`
+	CorrelationID            string              `json:"correlation_id,omitempty"`
 	Present                  bool                `json:"present"`
 	ConnectedAt              time.Time           `json:"connected_at,omitempty"`
 	LastChanged              time.Time           `json:"last_changed,omitempty"`
@@ -94,13 +115,146 @@ type DeviceSnapshot struct {
 }
 
 type ParentDeviceState struct {
-	InstanceID  string           `json:"instance_id"`
-	DisplayName string           `json:"display_name,omitempty"`
-	Service     string           `json:"service,omitempty"`
-	Class       string           `json:"class,omitempty"`
-	Enumerator  string           `json:"enumerator,omitempty"`
-	PowerState  DevicePowerState `json:"power_state"`
-	Evidence    string           `json:"evidence,omitempty"`
+	InstanceID    string           `json:"instance_id"`
+	DisplayName   string           `json:"display_name,omitempty"`
+	Service       string           `json:"service,omitempty"`
+	Class         string           `json:"class,omitempty"`
+	ClassGuid     string           `json:"class_guid,omitempty"`
+	Driver        string           `json:"driver,omitempty"`
+	Enumerator    string           `json:"enumerator,omitempty"`
+	Location      string           `json:"location,omitempty"`
+	LocationPaths []string         `json:"location_paths,omitempty"`
+	ContainerID   string           `json:"container_id,omitempty"`
+	PowerState    DevicePowerState `json:"power_state"`
+	Evidence      string           `json:"evidence,omitempty"`
+}
+
+type PowerData struct {
+	Size                    uint32             `json:"pd_size,omitempty"`
+	MostRecentPowerState    DevicePowerState   `json:"pd_most_recent_power_state,omitempty"`
+	MostRecentPowerStateRaw uint32             `json:"pd_most_recent_power_state_raw,omitempty"`
+	Capabilities            uint32             `json:"pd_capabilities,omitempty"`
+	D1Latency               uint32             `json:"pd_d1_latency,omitempty"`
+	D2Latency               uint32             `json:"pd_d2_latency,omitempty"`
+	D3Latency               uint32             `json:"pd_d3_latency,omitempty"`
+	PowerStateMapping       []DevicePowerState `json:"pd_power_state_mapping,omitempty"`
+	PowerStateMappingRaw    []uint32           `json:"pd_power_state_mapping_raw,omitempty"`
+	DeepestSystemWake       string             `json:"pd_deepest_system_wake,omitempty"`
+	DeepestSystemWakeRaw    uint32             `json:"pd_deepest_system_wake_raw,omitempty"`
+	D3HotColdNote           string             `json:"d3_hot_cold_note,omitempty"`
+}
+
+type USBPcapHints struct {
+	RootHub            string `json:"root_hub,omitempty"`
+	Interface          string `json:"interface,omitempty"`
+	BusNumber          string `json:"bus_number,omitempty"`
+	DeviceAddress      string `json:"device_address,omitempty"`
+	BulkInEndpoint     string `json:"bulk_in_endpoint,omitempty"`
+	BulkOutEndpoint    string `json:"bulk_out_endpoint,omitempty"`
+	EndpointConfidence string `json:"endpoint_confidence,omitempty"`
+}
+
+type NetAdapterSnapshot struct {
+	Time             time.Time `json:"time"`
+	CorrelationID    string    `json:"correlation_id,omitempty"`
+	Name             string    `json:"name,omitempty"`
+	InterfaceIndex   string    `json:"interface_index,omitempty"`
+	Status           string    `json:"status,omitempty"`
+	LinkSpeed        string    `json:"link_speed,omitempty"`
+	OutboundErrors   string    `json:"outbound_errors,omitempty"`
+	InboundErrors    string    `json:"inbound_errors,omitempty"`
+	DiscardedPackets string    `json:"discarded_packets,omitempty"`
+	DeviceInstanceID string    `json:"device_instance_id,omitempty"`
+}
+
+type DiagnosticCause struct {
+	Kind       string     `json:"kind"`
+	Reason     string     `json:"reason"`
+	Confidence Confidence `json:"confidence"`
+	Evidence   []string   `json:"evidence,omitempty"`
+}
+
+func DiagnosticCauses(d DeviceSnapshot, history []Event) []DiagnosticCause {
+	var out []DiagnosticCause
+	if d.ParentLowPowerChildD0 || hasLowPowerParent(d.ParentStates) {
+		out = append(out, DiagnosticCause{
+			Kind:       "USB電源管理疑い",
+			Reason:     "parent Hub/xHCI/USB4 Router low-power state is present near the selected device",
+			Confidence: ConfidenceMedium,
+			Evidence:   []string{formatParentStateEvidence(d.ParentStates), d.PowerStateEvidence},
+		})
+	}
+	if looksNetworkRelated(d) && !hasLowPowerParent(d.ParentStates) && d.ProblemCode == 0 {
+		out = append(out, DiagnosticCause{
+			Kind:       "NDIS / ドライバ疑い",
+			Reason:     "USB chain has no current low-power/problem evidence; compare network statistics and USBPcap Bulk OUT",
+			Confidence: ConfidenceLow,
+			Evidence:   []string{"class=" + d.Class, "service=" + d.Service},
+		})
+	}
+	for _, event := range history {
+		if event.Raw == nil {
+			continue
+		}
+		bulkOut := strings.ToLower(event.Raw["usbpcap_bulk_out"])
+		complete := strings.ToLower(event.Raw["usbpcap_complete"])
+		status := strings.ToLower(event.Raw["usbpcap_status"])
+		if bulkOut == "true" && (complete == "false" || strings.Contains(status, "error")) {
+			out = append(out, DiagnosticCause{
+				Kind:       "USB転送詰まり疑い",
+				Reason:     "USBPcap evidence says Bulk OUT exists but completion/error evidence is suspicious",
+				Confidence: ConfidenceMedium,
+				Evidence:   []string{event.Message, "usbpcap_status=" + event.Raw["usbpcap_status"]},
+			})
+			break
+		}
+		if bulkOut == "success" && strings.EqualFold(event.Raw["upper_ack_observed"], "false") {
+			out = append(out, DiagnosticCause{
+				Kind:       "ドングルFW / PHY疑い",
+				Reason:     "Bulk OUT succeeded but no upper response/ACK evidence is present",
+				Confidence: ConfidenceLow,
+				Evidence:   []string{event.Message},
+			})
+			break
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, DiagnosticCause{
+			Kind:       "未判定",
+			Reason:     "current evidence is insufficient; use D-state history, ETW, USBPcap, and network logs",
+			Confidence: ConfidenceLow,
+		})
+	}
+	return out
+}
+
+func hasLowPowerParent(states []ParentDeviceState) bool {
+	for _, state := range states {
+		if IsLowPowerState(state.PowerState) {
+			return true
+		}
+	}
+	return false
+}
+
+func formatParentStateEvidence(states []ParentDeviceState) string {
+	if len(states) == 0 {
+		return "parent_states=none"
+	}
+	parts := make([]string, 0, len(states))
+	for _, state := range states {
+		name := state.DisplayName
+		if name == "" {
+			name = state.InstanceID
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", name, state.PowerState))
+	}
+	return strings.Join(parts, " | ")
+}
+
+func looksNetworkRelated(d DeviceSnapshot) bool {
+	text := strings.ToLower(strings.Join([]string{d.Class, d.Service, d.Description, d.FriendlyName, d.BusReportedDeviceDesc}, " "))
+	return strings.Contains(text, "net") || strings.Contains(text, "ndis") || strings.Contains(text, "rndis") || strings.Contains(text, "ethernet")
 }
 
 func (d DeviceSnapshot) DisplayName() string {
@@ -180,11 +334,18 @@ func (d DeviceSnapshot) HasFTDISignal() bool {
 		d.VID == "0403"
 }
 
-func EnrichDeviceRelationships(devices []DeviceSnapshot) []DeviceSnapshot {
+func EnrichDeviceRelationships(devices []DeviceSnapshot, allDevices ...[]DeviceSnapshot) []DeviceSnapshot {
 	out := make([]DeviceSnapshot, len(devices))
 	copy(out, devices)
 
 	byInstance := make(map[string]DeviceSnapshot, len(out))
+	for _, all := range allDevices {
+		for _, device := range all {
+			if device.InstanceID != "" {
+				byInstance[strings.ToUpper(device.InstanceID)] = device
+			}
+		}
+	}
 	for _, device := range out {
 		if device.InstanceID != "" {
 			byInstance[strings.ToUpper(device.InstanceID)] = device
@@ -321,18 +482,23 @@ func parentStatesFor(d DeviceSnapshot, byInstance map[string]DeviceSnapshot) []P
 			out = append(out, ParentDeviceState{
 				InstanceID: id,
 				PowerState: PowerUnknown,
-				Evidence:   "parent not found in current SetupAPI USB snapshot",
+				Evidence:   "parent not found in all-present-devices snapshot",
 			})
 			continue
 		}
 		out = append(out, ParentDeviceState{
-			InstanceID:  parent.InstanceID,
-			DisplayName: parent.DisplayName(),
-			Service:     parent.Service,
-			Class:       parent.Class,
-			Enumerator:  parent.Enumerator,
-			PowerState:  parent.PowerState,
-			Evidence:    parent.PowerStateEvidence,
+			InstanceID:    parent.InstanceID,
+			DisplayName:   parent.DisplayName(),
+			Service:       parent.Service,
+			Class:         parent.Class,
+			ClassGuid:     parent.ClassGuid,
+			Driver:        parent.Driver,
+			Enumerator:    parent.Enumerator,
+			Location:      parent.Location,
+			LocationPaths: append([]string(nil), parent.LocationPaths...),
+			ContainerID:   parent.ContainerID,
+			PowerState:    parent.PowerState,
+			Evidence:      parent.PowerStateEvidence,
 		})
 	}
 	return out
@@ -361,6 +527,10 @@ func DeviceEvidenceRaw(d DeviceSnapshot) map[string]string {
 	add("friendly_name", d.FriendlyName)
 	add("description", d.Description)
 	add("hardware_id", d.HardwareID)
+	add("container_id", d.ContainerID)
+	add("class_guid", d.ClassGuid)
+	add("driver", d.Driver)
+	add("bus_reported_device_desc", d.BusReportedDeviceDesc)
 	add("vid", d.VID)
 	add("pid", d.PID)
 	add("revision", d.Revision)
@@ -390,6 +560,42 @@ func DeviceEvidenceRaw(d DeviceSnapshot) map[string]string {
 	add("power_state", string(d.PowerState))
 	add("power_state_evidence", d.PowerStateEvidence)
 	add("power_data_hex", d.PowerDataHex)
+	if d.PowerData.Size > 0 || d.PowerData.MostRecentPowerState != "" {
+		add("pd_size", fmt.Sprintf("%d", d.PowerData.Size))
+		add("pd_most_recent_power_state", string(d.PowerData.MostRecentPowerState))
+		add("pd_most_recent_power_state_raw", fmt.Sprintf("%d", d.PowerData.MostRecentPowerStateRaw))
+		add("pd_capabilities", fmt.Sprintf("0x%08X", d.PowerData.Capabilities))
+		add("pd_d1_latency", fmt.Sprintf("%d", d.PowerData.D1Latency))
+		add("pd_d2_latency", fmt.Sprintf("%d", d.PowerData.D2Latency))
+		add("pd_d3_latency", fmt.Sprintf("%d", d.PowerData.D3Latency))
+		add("pd_power_state_mapping", formatPowerStateMapping(d.PowerData))
+		add("pd_deepest_system_wake", d.PowerData.DeepestSystemWake)
+		add("pd_deepest_system_wake_raw", fmt.Sprintf("%d", d.PowerData.DeepestSystemWakeRaw))
+		add("d3_hot_cold_note", d.PowerData.D3HotColdNote)
+	}
+	add("status", d.Status)
+	if d.StatusFlags != 0 {
+		add("status_flags", fmt.Sprintf("0x%08X", d.StatusFlags))
+	}
+	if len(d.StatusFlagNames) > 0 {
+		add("status_flag_names", strings.Join(d.StatusFlagNames, " | "))
+	}
+	if d.ProblemCode != 0 {
+		add("problem_code", fmt.Sprintf("%d", d.ProblemCode))
+	}
+	if d.ConfigManagerErrorCode != 0 {
+		add("config_manager_error_code", fmt.Sprintf("%d", d.ConfigManagerErrorCode))
+	}
+	add("correlation_id", d.CorrelationID)
+	if d.USBPcapHints.RootHub != "" || d.USBPcapHints.DeviceAddress != "" || d.USBPcapHints.EndpointConfidence != "" {
+		add("usbpcap_root_hub", d.USBPcapHints.RootHub)
+		add("usbpcap_interface", d.USBPcapHints.Interface)
+		add("usbpcap_bus_number", d.USBPcapHints.BusNumber)
+		add("usbpcap_device_address", d.USBPcapHints.DeviceAddress)
+		add("usbpcap_bulk_in_endpoint", d.USBPcapHints.BulkInEndpoint)
+		add("usbpcap_bulk_out_endpoint", d.USBPcapHints.BulkOutEndpoint)
+		add("usbpcap_endpoint_confidence", d.USBPcapHints.EndpointConfidence)
+	}
 	if d.ParentLowPowerChildD0 {
 		add("parent_low_power_child_d0", "true")
 	}
@@ -411,11 +617,32 @@ func DeviceEvidenceRaw(d DeviceSnapshot) map[string]string {
 			if parent.Service != "" {
 				state += " service=" + parent.Service
 			}
+			if parent.Driver != "" {
+				state += " driver=" + parent.Driver
+			}
 			parentStates = append(parentStates, state)
 		}
 		add("parent_states", strings.Join(parentStates, " | "))
 	}
 	return raw
+}
+
+func formatPowerStateMapping(power PowerData) string {
+	if len(power.PowerStateMapping) == 0 && len(power.PowerStateMappingRaw) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(power.PowerStateMappingRaw))
+	for i, raw := range power.PowerStateMappingRaw {
+		state := ""
+		if i < len(power.PowerStateMapping) {
+			state = string(power.PowerStateMapping[i])
+		}
+		if state == "" {
+			state = "unknown"
+		}
+		parts = append(parts, fmt.Sprintf("S%d=%s(%d)", i, state, raw))
+	}
+	return strings.Join(parts, " | ")
 }
 
 func TopologyHints(d DeviceSnapshot) []string {

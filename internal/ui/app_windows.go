@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	crand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -20,6 +22,7 @@ import (
 	"usb-suspend-watch/internal/logs"
 	"usb-suspend-watch/internal/model"
 	"usb-suspend-watch/internal/monitor"
+	"usb-suspend-watch/internal/netstats"
 	"usb-suspend-watch/internal/platform"
 	"usb-suspend-watch/internal/usbpcap"
 )
@@ -82,8 +85,12 @@ type app struct {
 	sequence       *eventTableModel
 	poller         *monitor.Poller
 	logger         *logs.EventLogger
+	deviceLogger   *logs.JSONLWriter
+	netLogger      *logs.JSONLWriter
 	logDir         string
+	logPrefix      string
 	sessionStarted time.Time
+	correlationID  string
 
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -100,6 +107,7 @@ type app struct {
 	usbpcapStartID    int
 	usbpcapCmd        *exec.Cmd
 	usbpcapOutputPath string
+	detailedUntil     time.Time
 	mu                sync.Mutex
 
 	selectionChanging bool
@@ -116,11 +124,24 @@ func Run(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	logger, err := logs.NewEventLogger(logDir)
+	sessionStarted := time.Now()
+	correlationID := makeCorrelationID(sessionStarted)
+	logPrefix := fmt.Sprintf("usb_watch_%s_%s", sessionStarted.Format("20060102_150405"), correlationID)
+	logger, err := logs.NewEventLoggerAtPath(filepath.Join(logDir, logPrefix+"_events.jsonl"))
 	if err != nil {
 		return err
 	}
 	defer logger.Close()
+	deviceLogger, err := logs.NewJSONLWriter(filepath.Join(logDir, logPrefix+"_device.jsonl"))
+	if err != nil {
+		return err
+	}
+	defer deviceLogger.Close()
+	netLogger, err := logs.NewJSONLWriter(filepath.Join(logDir, logPrefix+"_net.jsonl"))
+	if err != nil {
+		return err
+	}
+	defer netLogger.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &app{
@@ -132,8 +153,12 @@ func Run(cfg Config) error {
 		sequence:       newEventTableModel(200),
 		poller:         monitor.NewPoller(2 * time.Second),
 		logger:         logger,
+		deviceLogger:   deviceLogger,
+		netLogger:      netLogger,
 		logDir:         logDir,
-		sessionStarted: time.Now(),
+		logPrefix:      logPrefix,
+		sessionStarted: sessionStarted,
+		correlationID:  correlationID,
 		ctx:            ctx,
 		cancel:         cancel,
 		language:       languageJapanese,
@@ -153,6 +178,7 @@ func Run(cfg Config) error {
 
 	a.poller.Prime()
 	go a.poller.Run(ctx)
+	go a.runSnapshotLogging(ctx)
 	a.refreshDevices()
 	a.addEvent(model.Event{
 		Time:       a.sessionStarted,
@@ -160,12 +186,26 @@ func Run(cfg Config) error {
 		Source:     model.SourceApp,
 		Confidence: model.ConfidenceHigh,
 		Message:    "USB Suspend Watch started",
-		Raw:        map[string]string{"session_started_at": a.sessionStarted.Format(time.RFC3339Nano)},
+		Raw: map[string]string{
+			"session_started_at": a.sessionStarted.Format(time.RFC3339Nano),
+			"correlation_id":     a.correlationID,
+			"device_log":         a.deviceLogger.Path(),
+			"events_log":         a.logger.Path(),
+			"network_log":        a.netLogger.Path(),
+		},
 	}, true)
 
 	a.updateStatus(statusSimpleMonitorRunning)
 	a.mw.Run()
 	return nil
+}
+
+func makeCorrelationID(t time.Time) string {
+	var b [3]byte
+	if _, err := crand.Read(b[:]); err == nil {
+		return "s" + hex.EncodeToString(b[:])
+	}
+	return fmt.Sprintf("s%06x", t.UnixNano()&0xffffff)
 }
 
 func (a *app) createWindow() error {
@@ -241,6 +281,18 @@ func (a *app) createWindow() error {
 									{Title: text.deviceColumnTitles[6], Width: 85},
 									{Title: text.deviceColumnTitles[7], Width: 160},
 									{Title: text.deviceColumnTitles[8], Width: 115},
+									{Title: text.deviceColumnTitles[9], Width: 260},
+									{Title: text.deviceColumnTitles[10], Width: 240},
+									{Title: text.deviceColumnTitles[11], Width: 180},
+									{Title: text.deviceColumnTitles[12], Width: 90},
+									{Title: text.deviceColumnTitles[13], Width: 240},
+									{Title: text.deviceColumnTitles[14], Width: 100},
+									{Title: text.deviceColumnTitles[15], Width: 220},
+									{Title: text.deviceColumnTitles[16], Width: 70},
+									{Title: text.deviceColumnTitles[17], Width: 70},
+									{Title: text.deviceColumnTitles[18], Width: 260},
+									{Title: text.deviceColumnTitles[19], Width: 220},
+									{Title: text.deviceColumnTitles[20], Width: 180},
 								},
 								Model: a.devices,
 								OnSelectedIndexesChanged: func() {
@@ -504,6 +556,9 @@ func (a *app) consumePollerEvents() {
 func (a *app) refreshDevices() {
 	target, hasTarget := a.currentDeviceSelectionTarget()
 	devices := a.poller.Snapshot()
+	for i := range devices {
+		devices[i].CorrelationID = a.correlationID
+	}
 	devices = filterDevicesForTarget(devices, a.currentTargetFilterIndex())
 	sort.Slice(devices, func(i, j int) bool {
 		return strings.ToLower(devices[i].DisplayName()) < strings.ToLower(devices[j].DisplayName())
@@ -517,6 +572,97 @@ func (a *app) refreshDevices() {
 	}
 	a.updateDetails()
 	a.updateStatus(statusSimpleMonitorRunning)
+}
+
+func (a *app) runSnapshotLogging(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	var lastDeviceLog time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			interval := 5 * time.Second
+			if a.isDetailedLoggingActive(now) {
+				interval = 1 * time.Second
+			}
+			if !lastDeviceLog.IsZero() && now.Sub(lastDeviceLog) < interval {
+				continue
+			}
+			lastDeviceLog = now
+			a.writeDeviceSnapshots(now)
+		}
+	}
+}
+
+func (a *app) isDetailedLoggingActive(now time.Time) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return !a.detailedUntil.IsZero() && now.Before(a.detailedUntil)
+}
+
+func (a *app) writeDeviceSnapshots(now time.Time) {
+	devices := a.poller.Snapshot()
+	shouldCaptureNet := false
+	for _, device := range devices {
+		device.CorrelationID = a.correlationID
+		_ = a.deviceLogger.Append(deviceSnapshotLogRecord(now, a.correlationID, device))
+		if netstats.IsNetworkDevice(device) {
+			shouldCaptureNet = true
+		}
+	}
+	if !shouldCaptureNet {
+		return
+	}
+	stats, err := netstats.Capture(a.ctx, a.correlationID, now)
+	if err != nil {
+		_ = a.netLogger.Append(map[string]string{
+			"time":           now.Format(time.RFC3339Nano),
+			"correlation_id": a.correlationID,
+			"net_error":      err.Error(),
+		})
+		return
+	}
+	for _, stat := range stats {
+		_ = a.netLogger.Append(stat)
+	}
+}
+
+func deviceSnapshotLogRecord(t time.Time, correlationID string, d model.DeviceSnapshot) map[string]interface{} {
+	return map[string]interface{}{
+		"Timestamp":               t.Format(time.RFC3339Nano),
+		"CorrelationID":           correlationID,
+		"Name":                    d.DisplayName(),
+		"InstanceId":              d.InstanceID,
+		"ParentInstanceId":        d.ParentInstanceID,
+		"ContainerId":             d.ContainerID,
+		"LocationPath":            strings.Join(d.LocationPaths, " | "),
+		"Status":                  d.Status,
+		"StatusFlags":             d.StatusFlags,
+		"StatusFlagNames":         d.StatusFlagNames,
+		"ProblemCode":             d.ProblemCode,
+		"ConfigManagerErrorCode":  d.ConfigManagerErrorCode,
+		"Enumerator":              d.Enumerator,
+		"Service":                 d.Service,
+		"Class":                   d.Class,
+		"ClassGuid":               d.ClassGuid,
+		"Driver":                  d.Driver,
+		"VID":                     d.VID,
+		"PID":                     d.PID,
+		"PD_MostRecentPowerState": d.PowerData.MostRecentPowerState,
+		"PD_Capabilities":         fmt.Sprintf("0x%08X", d.PowerData.Capabilities),
+		"PD_D1Latency":            d.PowerData.D1Latency,
+		"PD_D2Latency":            d.PowerData.D2Latency,
+		"PD_D3Latency":            d.PowerData.D3Latency,
+		"PD_PowerStateMapping":    d.PowerData.PowerStateMapping,
+		"PD_DeepestSystemWake":    d.PowerData.DeepestSystemWake,
+		"PowerState":              d.PowerState,
+		"ConnectionTime":          formatOptionalTime(d.ConnectedAt),
+		"LastSeenTime":            formatOptionalTime(d.LastSeen),
+		"ParentLowPowerChildD0":   d.ParentLowPowerChildD0,
+		"USBPcapHints":            d.USBPcapHints,
+	}
 }
 
 func (a *app) addEvent(event model.Event, persist bool) {
@@ -534,6 +680,9 @@ func (a *app) addEvent(event model.Event, persist bool) {
 	if persist {
 		_ = a.logger.Append(event)
 	}
+	if isDetailedLoggingTrigger(event) {
+		a.triggerDetailedLogging(event)
+	}
 	if a.shouldAutoSelectLatestEvent() && a.eventView != nil && a.events.RowCount() > 0 && eventMatchesFilter(event, a.events.filter) {
 		_ = a.eventView.SetSelectedIndexes([]int{a.events.RowCount() - 1})
 	}
@@ -542,6 +691,53 @@ func (a *app) addEvent(event model.Event, persist bool) {
 		a.updateDetails()
 	}
 	a.notifyImportantEvent(event)
+}
+
+func isDetailedLoggingTrigger(event model.Event) bool {
+	switch event.Type {
+	case model.EventDStateTransition,
+		model.EventPowerD0Exit,
+		model.EventPowerD0Entry,
+		model.EventSuspectSuspend,
+		model.EventParentMismatch,
+		model.EventProblemCode,
+		model.EventStatusChanged,
+		model.EventDeviceMissing,
+		model.EventDeviceReenum,
+		model.EventLastSeenStale,
+		model.EventError:
+		return true
+	default:
+		return false
+	}
+}
+
+func (a *app) triggerDetailedLogging(trigger model.Event) {
+	now := time.Now()
+	a.mu.Lock()
+	wasActive := !a.detailedUntil.IsZero() && now.Before(a.detailedUntil)
+	a.detailedUntil = now.Add(60 * time.Second)
+	a.mu.Unlock()
+	if wasActive {
+		return
+	}
+	raw := map[string]string{
+		"correlation_id":      a.correlationID,
+		"detailed_until":      a.detailedUntil.Format(time.RFC3339Nano),
+		"trigger_type":        string(trigger.Type),
+		"trigger_source":      string(trigger.Source),
+		"trigger_device":      trigger.Device.DisplayName(),
+		"trigger_instance_id": trigger.Device.InstanceID,
+	}
+	a.addEvent(model.Event{
+		Time:       now,
+		Type:       model.EventDetailedLogging,
+		Source:     model.SourceApp,
+		Confidence: model.ConfidenceHigh,
+		Device:     trigger.Device,
+		Message:    "detailed 1-second logging started for 60 seconds: " + string(trigger.Type),
+		Raw:        raw,
+	}, true)
 }
 
 func (a *app) onDeviceSelectionChanged() {
@@ -821,7 +1017,11 @@ func (a *app) withSessionRaw(event model.Event) model.Event {
 	for key, value := range event.Raw {
 		raw[key] = value
 	}
+	if event.Device.CorrelationID == "" {
+		event.Device.CorrelationID = a.correlationID
+	}
 	raw["session_started_at"] = a.sessionStarted.Format(time.RFC3339Nano)
+	raw["correlation_id"] = a.correlationID
 	if hasDeviceIdentity(event.Device) {
 		for key, value := range model.DeviceEvidenceRaw(event.Device) {
 			if _, ok := raw[key]; !ok {
@@ -829,6 +1029,7 @@ func (a *app) withSessionRaw(event model.Event) model.Event {
 			}
 		}
 		raw["diagnostic_summary"] = strings.Join(diagnosticSummary(event.Device, nil), " | ")
+		raw["diagnostic_causes"] = formatDiagnosticCauses(model.DiagnosticCauses(event.Device, nil))
 	}
 	event.Raw = raw
 	return event
@@ -1296,9 +1497,8 @@ func (a *app) startUSBPcapForDevice(startID int, target model.DeviceSnapshot) {
 		})
 		return
 	}
-	stamp := time.Now().Format("20060102-150405")
-	outputPath := filepath.Join(a.logDir, "usbpcap-"+stamp+".pcap")
-	metadataPath := filepath.Join(a.logDir, "usbpcap-"+stamp+".json")
+	outputPath := filepath.Join(a.logDir, a.logPrefix+"_usbpcap.pcapng")
+	metadataPath := filepath.Join(a.logDir, a.logPrefix+"_usbpcap.json")
 	plan, err := usbpcap.BuildPlan(exePath, interfaces, target, outputPath, metadataPath)
 	if err != nil {
 		fail("failed to build USBPcap capture plan: "+err.Error(), map[string]string{
@@ -1307,7 +1507,7 @@ func (a *app) startUSBPcapForDevice(startID int, target model.DeviceSnapshot) {
 		})
 		return
 	}
-	if err := writeUSBPcapMetadata(plan, target, a.sessionStarted); err != nil {
+	if err := writeUSBPcapMetadata(plan, target, a.sessionStarted, a.correlationID); err != nil {
 		fail("failed to write USBPcap metadata: "+err.Error(), usbpcapRaw(plan, target, err.Error()))
 		return
 	}
@@ -1434,10 +1634,12 @@ func (a *app) stopUSBPcapProcess(addLogEvent bool) {
 	}
 }
 
-func writeUSBPcapMetadata(plan usbpcap.Plan, target model.DeviceSnapshot, sessionStarted time.Time) error {
+func writeUSBPcapMetadata(plan usbpcap.Plan, target model.DeviceSnapshot, sessionStarted time.Time, correlationID string) error {
 	data, err := json.MarshalIndent(map[string]interface{}{
 		"session_started_at": sessionStarted.Format(time.RFC3339Nano),
+		"correlation_id":     correlationID,
 		"target":             target,
+		"usbpcap_hints":      target.USBPcapHints,
 		"capture_plan":       plan,
 		"warning":            "USBPcap is software URB capture. Root-hub fallback can include sibling device traffic.",
 	}, "", "  ")
@@ -1458,6 +1660,12 @@ func usbpcapRaw(plan usbpcap.Plan, target model.DeviceSnapshot, errText string) 
 		"usbpcap_capture_all":       fmt.Sprint(plan.CaptureAll),
 		"usbpcap_target":            target.DisplayName(),
 		"usbpcap_discovery":         plan.DiscoverySummary,
+		"usbpcap_hint_root_hub":     target.USBPcapHints.RootHub,
+		"usbpcap_hint_bus_number":   target.USBPcapHints.BusNumber,
+		"usbpcap_hint_device_addr":  target.USBPcapHints.DeviceAddress,
+		"usbpcap_hint_bulk_in":      target.USBPcapHints.BulkInEndpoint,
+		"usbpcap_hint_bulk_out":     target.USBPcapHints.BulkOutEndpoint,
+		"usbpcap_endpoint_level":    target.USBPcapHints.EndpointConfidence,
 	}
 	if len(plan.DeviceAddresses) > 0 {
 		parts := make([]string, 0, len(plan.DeviceAddresses))
@@ -1488,6 +1696,7 @@ func (a *app) startETW() {
 	stopFile := filepath.Join(a.logDir, "usb-suspend-watch-etw.stop")
 	_ = os.Remove(stopFile)
 	helperLog := logs.PathForPrefix(a.logDir, "usb-suspend-watch-etw", time.Now())
+	etlPath := filepath.Join(a.logDir, a.logPrefix+"_etw.etl")
 	var offset int64
 	if info, err := os.Stat(helperLog); err == nil {
 		offset = info.Size()
@@ -1498,6 +1707,7 @@ func (a *app) startETW() {
 		"--session", "UsbSuspendWatch-ETW",
 		"--stop-file", stopFile,
 		"--parent-pid", fmt.Sprint(os.Getpid()),
+		"--etl-path", etlPath,
 	}
 	elevated := !platform.IsAdmin()
 	err := platform.StartProcess(args, elevated)
@@ -1526,6 +1736,11 @@ func (a *app) startETW() {
 		Source:     model.SourceApp,
 		Confidence: model.ConfidenceHigh,
 		Message:    "ETW helper start requested; UAC may appear if administrative rights are needed",
+		Raw: map[string]string{
+			"correlation_id": a.correlationID,
+			"etl_path":       etlPath,
+			"helper_log":     helperLog,
+		},
 	}, true)
 	a.updateStatus(statusETWWaiting)
 }

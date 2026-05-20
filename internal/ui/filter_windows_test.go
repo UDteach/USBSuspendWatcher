@@ -436,10 +436,10 @@ func TestLanguageStringsUseSingleLanguageLabels(t *testing.T) {
 	if ja.languageLabel != "Language" {
 		t.Fatalf("unexpected Japanese language selector label: %q", ja.languageLabel)
 	}
-	if len(ja.deviceColumnTitles) != 10 || ja.deviceColumnTitles[1] != "状態" || ja.deviceColumnTitles[7] != "接続時刻" || ja.deviceColumnTitles[9] != "Parent tree" {
+	if len(ja.deviceColumnTitles) != 9 || ja.deviceColumnTitles[1] != "状態" || ja.deviceColumnTitles[7] != "接続時刻" {
 		t.Fatalf("Japanese device columns should include a state column: %#v", ja.deviceColumnTitles)
 	}
-	if len(en.deviceColumnTitles) != 10 || en.deviceColumnTitles[1] != "State" || en.deviceColumnTitles[7] != "Connected" || en.deviceColumnTitles[9] != "Parent tree" {
+	if len(en.deviceColumnTitles) != 9 || en.deviceColumnTitles[1] != "State" || en.deviceColumnTitles[7] != "Connected" {
 		t.Fatalf("English device columns should include a state column: %#v", en.deviceColumnTitles)
 	}
 	if len(ja.levelOptions) != 3 || ja.levelOptions[0] != "Info以外" {

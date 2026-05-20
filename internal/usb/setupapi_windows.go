@@ -325,11 +325,23 @@ func isUSBDevice(d model.DeviceSnapshot) bool {
 	inst := strings.ToUpper(d.InstanceID)
 	enum := strings.ToUpper(d.Enumerator)
 	hw := strings.ToUpper(d.HardwareID)
+	service := strings.ToUpper(d.Service)
+	name := strings.ToUpper(strings.Join([]string{d.FriendlyName, d.Description, d.Class}, " "))
 	if strings.HasPrefix(inst, `BTHENUM\`) {
 		return false
 	}
 	if enum == "USB" || enum == "USBSTOR" || strings.HasPrefix(inst, `USB\`) || strings.HasPrefix(inst, `USBSTOR\`) {
 		return true
 	}
-	return strings.Contains(hw, "VID_") && strings.Contains(hw, "PID_")
+	if strings.Contains(hw, "VID_") && strings.Contains(hw, "PID_") {
+		return true
+	}
+	topologyText := strings.Join([]string{inst, service, name}, " ")
+	return strings.Contains(topologyText, "USB4HOSTROUTER") ||
+		strings.Contains(topologyText, "USB4DEVICEROUTER") ||
+		strings.Contains(topologyText, "UCMUCSI") ||
+		strings.Contains(topologyText, "USBXHCI") ||
+		strings.Contains(topologyText, "USBHUB3") ||
+		strings.Contains(topologyText, "ROOT_HUB30") ||
+		strings.Contains(topologyText, "THUNDERBOLT")
 }

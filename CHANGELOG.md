@@ -3,6 +3,8 @@
 ## v0.8.4
 
 - Kept the selected connected USB row as a watch target across refreshes and reconnects when stable identity evidence can match the device again.
+- Converted the connected USB list from a flat device table with a parent-tree cell into tree-like parent/hub rows with child device rows.
+- Added USB3/USB4/Thunderbolt/USB-C topology hints so xHCI, USBHUB3, USB4 router, and UCSI parent nodes are visible when they are part of the device chain.
 - Reduced GUI table churn by avoiding full connected-device resets when visible row data is unchanged and by inserting visible timeline rows instead of resetting the whole event table for every appended event.
 - Tightened per-device monitoring keys so VID/PID-only or hardware-ID fallback evidence does not disable a different device when a specific identity such as VID/PID plus serial, logical group, instance ID, related ID, or COM port is available.
 - Added regression tests for reconnect tracking, reused COM ports with different serials, broad hardware-ID fallback behavior, stale snapshot avoidance, and stable serial-qualified monitoring.

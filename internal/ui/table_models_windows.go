@@ -14,24 +14,50 @@ import (
 type deviceTableModel struct {
 	walk.TableModelBase
 	items            []model.DeviceSnapshot
+	rows             []deviceTableRow
 	monitoredByKey   map[string]bool
 	language         displayLanguage
 	onMonitorChanged func(device model.DeviceSnapshot, monitored bool)
 }
+
+type deviceTableRow struct {
+	device model.DeviceSnapshot
+	parent model.ParentDeviceState
+	level  int
+	kind   deviceTableRowKind
+}
+
+type deviceTreeNode struct {
+	parent   model.ParentDeviceState
+	children []*deviceTreeNode
+	childBy  map[string]*deviceTreeNode
+	devices  []model.DeviceSnapshot
+}
+
+type deviceTableRowKind int
+
+const (
+	deviceTableRowParent deviceTableRowKind = iota
+	deviceTableRowDevice
+)
 
 func newDeviceTableModel() *deviceTableModel {
 	return &deviceTableModel{monitoredByKey: make(map[string]bool), language: languageJapanese}
 }
 
 func (m *deviceTableModel) RowCount() int {
-	return len(m.items)
+	return len(m.rows)
 }
 
 func (m *deviceTableModel) Value(row, col int) interface{} {
-	d := m.items[row]
+	r := m.rows[row]
+	if r.kind == deviceTableRowParent {
+		return parentRowValue(r, col)
+	}
+	d := r.device
 	switch col {
 	case 0:
-		return d.DisplayName()
+		return treeDeviceName(r.level, d.DisplayName())
 	case 1:
 		return deviceCurrentState(d, m.IsMonitored(d), m.language)
 	case 2:
@@ -54,35 +80,44 @@ func (m *deviceTableModel) Value(row, col int) interface{} {
 			return ""
 		}
 		return d.LastSeen.Format("15:04:05")
-	case 9:
-		return compactParentTree(d)
 	default:
 		return ""
 	}
 }
 
-func compactParentTree(d model.DeviceSnapshot) string {
-	names := make([]string, 0, len(d.ParentStates)+1)
-	for i := len(d.ParentStates) - 1; i >= 0; i-- {
-		state := d.ParentStates[i]
-		name := state.DisplayName
-		if name == "" {
-			name = state.InstanceID
+func parentRowValue(r deviceTableRow, col int) interface{} {
+	switch col {
+	case 0:
+		return treeDeviceName(r.level, parentRowName(r.parent))
+	case 1:
+		if hint := model.ParentTopologyHint(r.parent); hint != "" {
+			return hint
 		}
-		if name == "" {
-			name = "parent unknown"
-		}
-		if state.PowerState != "" && state.PowerState != model.PowerUnknown {
-			name += " [" + string(state.PowerState) + "]"
-		}
-		names = append(names, name)
+		return "parent/hub"
+	case 3:
+		return string(r.parent.PowerState)
+	case 4:
+		return r.parent.Evidence
+	default:
+		return ""
 	}
-	deviceName := d.DisplayName()
-	if d.PowerState != "" && d.PowerState != model.PowerUnknown {
-		deviceName += " [" + string(d.PowerState) + "]"
+}
+
+func parentRowName(parent model.ParentDeviceState) string {
+	if parent.DisplayName != "" {
+		return parent.DisplayName
 	}
-	names = append(names, deviceName)
-	return strings.Join(names, " └ ")
+	if parent.InstanceID != "" {
+		return parent.InstanceID
+	}
+	return "parent unknown"
+}
+
+func treeDeviceName(level int, name string) string {
+	if level <= 0 {
+		return name
+	}
+	return strings.Repeat("   ", level-1) + "└─ " + name
 }
 
 func (m *deviceTableModel) Set(items []model.DeviceSnapshot) {
@@ -95,9 +130,11 @@ func (m *deviceTableModel) Set(items []model.DeviceSnapshot) {
 	}
 	if sameDeviceRows(m.items, items) {
 		m.items = items
+		m.rows = buildDeviceTableRows(items)
 		return
 	}
 	m.items = items
+	m.rows = buildDeviceTableRows(items)
 	m.PublishRowsReset()
 }
 
@@ -107,10 +144,10 @@ func (m *deviceTableModel) SetLanguage(language displayLanguage) {
 }
 
 func (m *deviceTableModel) Item(row int) (model.DeviceSnapshot, bool) {
-	if row < 0 || row >= len(m.items) {
+	if row < 0 || row >= len(m.rows) || m.rows[row].kind != deviceTableRowDevice {
 		return model.DeviceSnapshot{}, false
 	}
-	return m.items[row], true
+	return m.rows[row].device, true
 }
 
 func (m *deviceTableModel) All() []model.DeviceSnapshot {
@@ -119,18 +156,80 @@ func (m *deviceTableModel) All() []model.DeviceSnapshot {
 	return out
 }
 
+func (m *deviceTableModel) IndexOfDevice(target model.DeviceSnapshot) int {
+	for i, row := range m.rows {
+		if row.kind == deviceTableRowDevice && sameDeviceForSelection(row.device, target) {
+			return i
+		}
+	}
+	return -1
+}
+
+func buildDeviceTableRows(devices []model.DeviceSnapshot) []deviceTableRow {
+	root := &deviceTreeNode{childBy: make(map[string]*deviceTreeNode)}
+	for _, device := range devices {
+		node := root
+		for i := len(device.ParentStates) - 1; i >= 0; i-- {
+			parent := device.ParentStates[i]
+			key := parentRowKey(parent)
+			child := node.childBy[key]
+			if child == nil {
+				child = &deviceTreeNode{parent: parent, childBy: make(map[string]*deviceTreeNode)}
+				node.childBy[key] = child
+				node.children = append(node.children, child)
+			}
+			node = child
+		}
+		node.devices = append(node.devices, device)
+	}
+	rows := make([]deviceTableRow, 0, len(devices)*2)
+	appendDeviceTreeRows(&rows, root, -1)
+	return rows
+}
+
+func appendDeviceTreeRows(rows *[]deviceTableRow, node *deviceTreeNode, level int) {
+	if level >= 0 {
+		*rows = append(*rows, deviceTableRow{
+			parent: node.parent,
+			level:  level,
+			kind:   deviceTableRowParent,
+		})
+	}
+	for _, child := range node.children {
+		appendDeviceTreeRows(rows, child, level+1)
+	}
+	for _, device := range node.devices {
+		*rows = append(*rows, deviceTableRow{
+			device: device,
+			level:  level + 1,
+			kind:   deviceTableRowDevice,
+		})
+	}
+}
+
+func parentRowKey(parent model.ParentDeviceState) string {
+	key := strings.TrimSpace(parent.InstanceID)
+	if key == "" {
+		key = strings.TrimSpace(parent.DisplayName)
+	}
+	if key == "" {
+		key = "parent unknown"
+	}
+	return strings.ToLower(key)
+}
+
 func (m *deviceTableModel) Checked(row int) bool {
-	if row < 0 || row >= len(m.items) {
+	if row < 0 || row >= len(m.rows) || m.rows[row].kind != deviceTableRowDevice {
 		return false
 	}
-	return m.IsMonitored(m.items[row])
+	return m.IsMonitored(m.rows[row].device)
 }
 
 func (m *deviceTableModel) SetChecked(row int, checked bool) error {
-	if row < 0 || row >= len(m.items) {
+	if row < 0 || row >= len(m.rows) || m.rows[row].kind != deviceTableRowDevice {
 		return nil
 	}
-	device := m.items[row]
+	device := m.rows[row].device
 	for _, key := range deviceMonitorKeys(device) {
 		m.monitoredByKey[key] = checked
 	}
@@ -391,7 +490,6 @@ func deviceRowSignature(d model.DeviceSnapshot) string {
 		d.Location,
 		d.ConnectedAt.Format(time.RFC3339Nano),
 		d.LastSeen.Format(time.RFC3339Nano),
-		compactParentTree(d),
 	}, "\x00")
 }
 

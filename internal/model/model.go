@@ -95,6 +95,9 @@ type DeviceSnapshot struct {
 type ParentDeviceState struct {
 	InstanceID  string           `json:"instance_id"`
 	DisplayName string           `json:"display_name,omitempty"`
+	Service     string           `json:"service,omitempty"`
+	Class       string           `json:"class,omitempty"`
+	Enumerator  string           `json:"enumerator,omitempty"`
 	PowerState  DevicePowerState `json:"power_state"`
 	Evidence    string           `json:"evidence,omitempty"`
 }
@@ -324,6 +327,9 @@ func parentStatesFor(d DeviceSnapshot, byInstance map[string]DeviceSnapshot) []P
 		out = append(out, ParentDeviceState{
 			InstanceID:  parent.InstanceID,
 			DisplayName: parent.DisplayName(),
+			Service:     parent.Service,
+			Class:       parent.Class,
+			Enumerator:  parent.Enumerator,
 			PowerState:  parent.PowerState,
 			Evidence:    parent.PowerStateEvidence,
 		})
@@ -387,6 +393,9 @@ func DeviceEvidenceRaw(d DeviceSnapshot) map[string]string {
 		add("parent_low_power_child_d0", "true")
 	}
 	add("parent_instance_id", d.ParentInstanceID)
+	if hints := TopologyHints(d); len(hints) > 0 {
+		add("topology_hints", strings.Join(hints, " | "))
+	}
 	add("physical_device_object_name", d.PhysicalDeviceObjectName)
 	if len(d.LocationPaths) > 0 {
 		add("location_paths", strings.Join(d.LocationPaths, " | "))
@@ -397,11 +406,60 @@ func DeviceEvidenceRaw(d DeviceSnapshot) map[string]string {
 	if len(d.ParentStates) > 0 {
 		parentStates := make([]string, 0, len(d.ParentStates))
 		for _, parent := range d.ParentStates {
-			parentStates = append(parentStates, parent.InstanceID+"="+string(parent.PowerState))
+			state := parent.InstanceID + "=" + string(parent.PowerState)
+			if parent.Service != "" {
+				state += " service=" + parent.Service
+			}
+			parentStates = append(parentStates, state)
 		}
 		add("parent_states", strings.Join(parentStates, " | "))
 	}
 	return raw
+}
+
+func TopologyHints(d DeviceSnapshot) []string {
+	var hints []string
+	for _, parent := range d.ParentStates {
+		if hint := ParentTopologyHint(parent); hint != "" {
+			hints = appendUnique(hints, hint)
+		}
+	}
+	return hints
+}
+
+func ParentTopologyHint(parent ParentDeviceState) string {
+	joined := strings.ToUpper(strings.Join([]string{
+		parent.InstanceID,
+		parent.DisplayName,
+		parent.Service,
+		parent.Class,
+		parent.Enumerator,
+	}, " "))
+	switch {
+	case strings.Contains(joined, "USB4HOSTROUTER"):
+		return "USB4 host router"
+	case strings.Contains(joined, "USB4DEVICEROUTER"):
+		return "USB4 device router"
+	case strings.Contains(joined, "UCMUCSI") || strings.Contains(joined, " UCSI"):
+		return "USB-C UCSI connector manager"
+	case strings.Contains(joined, "THUNDERBOLT"):
+		return "Thunderbolt path"
+	case strings.Contains(joined, "USBXHCI"):
+		return "USB xHCI host controller"
+	case strings.Contains(joined, "USBHUB3") || strings.Contains(joined, "ROOT_HUB30"):
+		return "USB 3 hub"
+	default:
+		return ""
+	}
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 type Event struct {

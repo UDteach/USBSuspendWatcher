@@ -285,7 +285,7 @@ func TestDeviceCurrentStateReflectsMonitoringAndPower(t *testing.T) {
 	}
 }
 
-func TestDeviceTableModelShowsParentTreeAndStateColumns(t *testing.T) {
+func TestDeviceTableModelShowsStateColumns(t *testing.T) {
 	m := newDeviceTableModel()
 	device := model.DeviceSnapshot{
 		InstanceID:   `USB\VID_0BDA&PID_0129\A`,
@@ -300,26 +300,60 @@ func TestDeviceTableModelShowsParentTreeAndStateColumns(t *testing.T) {
 	}
 
 	m.Set([]model.DeviceSnapshot{device})
-	if got := m.Value(0, 9); got != "USB xHCI Controller [D0] └ USB Hub [D0] └ USB Reader (COM52) [D3]" {
-		t.Fatalf("parent tree column = %q", got)
+	if got := m.RowCount(); got != 3 {
+		t.Fatalf("tree row count = %d, want parent, parent, device", got)
 	}
-	if got := m.Value(0, 1); got != "低電力 / Suspend疑い (D3)" {
+	if got := m.Value(0, 0); got != "USB xHCI Controller" {
+		t.Fatalf("root parent row = %q", got)
+	}
+	if got := m.Value(1, 0); got != "└─ USB Hub" {
+		t.Fatalf("nested parent row = %q", got)
+	}
+	if got := m.Value(2, 0); got != "   └─ USB Reader (COM52)" {
+		t.Fatalf("device tree row = %q", got)
+	}
+	if _, ok := m.Item(0); ok {
+		t.Fatalf("parent row should not be treated as a selectable device")
+	}
+	if got := m.Value(2, 1); got != "低電力 / Suspend疑い (D3)" {
 		t.Fatalf("Japanese state column = %q", got)
 	}
 
 	m.SetLanguage(languageEnglish)
-	if got := m.Value(0, 1); got != "Low power / suspected suspend (D3)" {
+	if got := m.Value(2, 1); got != "Low power / suspected suspend (D3)" {
 		t.Fatalf("English state column = %q", got)
 	}
 
-	if err := m.SetChecked(0, false); err != nil {
+	if err := m.SetChecked(2, false); err != nil {
 		t.Fatalf("SetChecked returned error: %v", err)
 	}
-	if got := m.Value(0, 1); got != "Monitoring off" {
+	if got := m.Value(2, 1); got != "Monitoring off" {
 		t.Fatalf("unchecked state column = %q", got)
 	}
-	if got := m.Value(0, 5); got != "COM52" {
+	if got := m.Value(2, 5); got != "COM52" {
 		t.Fatalf("COM column = %q", got)
+	}
+}
+
+func TestDeviceTableModelGroupsDevicesUnderSharedParentRows(t *testing.T) {
+	m := newDeviceTableModel()
+	parent := []model.ParentDeviceState{{DisplayName: "USB Hub", InstanceID: `USB\ROOT_HUB30\1`, PowerState: model.PowerD0}}
+	m.Set([]model.DeviceSnapshot{
+		{InstanceID: `USB\VID_0403&PID_6001\A`, FriendlyName: "USB Serial Port A", ParentStates: parent},
+		{InstanceID: `USB\VID_0403&PID_6001\B`, FriendlyName: "USB Serial Port B", ParentStates: parent},
+	})
+
+	if got := m.RowCount(); got != 3 {
+		t.Fatalf("tree row count = %d, want one shared parent plus two devices", got)
+	}
+	if got := m.Value(0, 0); got != "USB Hub" {
+		t.Fatalf("shared parent row = %q", got)
+	}
+	if got := m.Value(1, 0); got != "└─ USB Serial Port A" {
+		t.Fatalf("first child row = %q", got)
+	}
+	if got := m.Value(2, 0); got != "└─ USB Serial Port B" {
+		t.Fatalf("second child row = %q", got)
 	}
 }
 

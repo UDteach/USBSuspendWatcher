@@ -46,3 +46,18 @@ func TestListPresentDevicesSmoke(t *testing.T) {
 		}
 	}
 }
+
+func TestIsUSBDeviceIncludesUSB3USB4TopologyNodes(t *testing.T) {
+	cases := []model.DeviceSnapshot{
+		{Service: "Usb4HostRouter", Description: "USB4 Host Router"},
+		{Service: "Usb4DeviceRouter", Description: "USB4 Device Router"},
+		{Service: "UcmUcsiCx", Description: "UCSI USB Connector Manager"},
+		{Service: "USBXHCI", Description: "USB xHCI Compliant Host Controller"},
+		{Service: "USBHUB3", Description: "USB Root Hub (USB 3.0)"},
+	}
+	for _, device := range cases {
+		if !isUSBDevice(device) {
+			t.Fatalf("expected topology node to be included: %#v", device)
+		}
+	}
+}

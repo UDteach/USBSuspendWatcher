@@ -13,7 +13,7 @@ No driver, service, installer, USBPcap dependency, or telemetry is used.
 
 - Desktop GUI with a Japanese/English language dropdown.
 - Shows a monitoring status summary with connected USB count, low-power device count, suspected suspend count, resume count, privilege, and log path.
-- Lists currently connected USB devices, including each device's current UI state, COM port, connection time, last-seen time, and a default parent-tree column.
+- Lists currently connected USB devices as a tree-like list with parent/hub rows above their child device rows, including USB3 hub, xHCI, USB4 router, Thunderbolt, and USB-C UCSI topology hints when Windows exposes them.
 - Defaults to an `FTDI COM only` target filter so FTDI-style USB serial adapters and their related converter nodes are easier to inspect. Switch to `All USB` to see every USB device.
 - Groups FTDI adapter candidates by logical evidence so `USB Serial Port (COMxx)` and `USB Serial Converter` can be inspected together without assuming they are definitely the same physical device.
 - Lets you enable or disable monitoring per connected USB device with checkboxes, using specific identity keys before broader fallback evidence.
@@ -93,7 +93,7 @@ The main window is split by role:
 - Right middle: the selected device's session sequence.
 - Right bottom: diagnostic summary and raw JSON evidence.
 
-The connected-device table shows the parent/hub chain by default in the `Parent tree` column. The selected-device diagnostic area and double-click details window show the same relationship as a hanging tree with line characters.
+The connected-device list shows the parent/hub chain as tree-like rows rather than packing it into a single table cell. The selected-device diagnostic area and double-click details window show the same relationship as a hanging tree with line characters.
 
 The selected-device diagnostic area includes the evidence used for simple-mode power classification:
 
@@ -105,6 +105,7 @@ The selected-device diagnostic area includes the evidence used for simple-mode p
 - Logical group, relation role, and related instance IDs for USB Serial Port / USB Serial Converter same-device candidates.
 - Same-device candidate score and reasons: serial match is 90%, parent-instance match is 70%, location-path match is 60%, and VID/PID-only is 0% because it is not enough evidence.
 - Parent/hub power states, including a `parent_low_power_child_d0` warning when a child reports D0 while a parent or hub reports D1/D2/D3.
+- USB3/USB4/Thunderbolt/USB-C topology hints from parent services such as `USBHUB3`, `USBXHCI`, `Usb4HostRouter`, `Usb4DeviceRouter`, and `UcmUcsiCx`.
 - A line-drawn parent/hub tree that shows parent hubs above the selected device and related converter/port candidates below it.
 - Connected-at, last-changed, and recent per-device event sequence from the current app session.
 - Wake correlation for nearby USB/PnP/D0/D3 events and `powercfg /lastwake` output after PC resume.

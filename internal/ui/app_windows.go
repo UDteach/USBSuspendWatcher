@@ -230,7 +230,6 @@ func (a *app) createWindow() error {
 									{Title: text.deviceColumnTitles[6], Width: 85},
 									{Title: text.deviceColumnTitles[7], Width: 160},
 									{Title: text.deviceColumnTitles[8], Width: 115},
-									{Title: text.deviceColumnTitles[9], Width: 320},
 								},
 								Model: a.devices,
 								OnSelectedIndexesChanged: func() {
@@ -502,7 +501,7 @@ func (a *app) refreshDevices() {
 		a.groups.Set(devices)
 	}
 	if hasTarget {
-		a.restoreDeviceSelection(devices, target)
+		a.restoreDeviceSelection(target)
 	}
 	a.updateDetails()
 	a.updateStatus(statusSimpleMonitorRunning)
@@ -620,17 +619,22 @@ func (a *app) currentDeviceSelectionTarget() (model.DeviceSnapshot, bool) {
 	return model.DeviceSnapshot{}, false
 }
 
-func (a *app) restoreDeviceSelection(devices []model.DeviceSnapshot, target model.DeviceSnapshot) bool {
-	idx := findDeviceIndex(devices, target)
+func (a *app) restoreDeviceSelection(target model.DeviceSnapshot) bool {
+	idx := -1
+	if a.devices != nil {
+		idx = a.devices.IndexOfDevice(target)
+	}
 	if idx < 0 || a.deviceView == nil {
 		return false
 	}
 	a.selectionChanging = true
 	_ = a.deviceView.SetSelectedIndexes([]int{idx})
 	a.selectionChanging = false
-	a.watchedDevice = devices[idx]
-	a.hasWatchedDevice = true
-	a.watchFocusActive = true
+	if device, ok := a.devices.Item(idx); ok {
+		a.watchedDevice = device
+		a.hasWatchedDevice = true
+		a.watchFocusActive = true
+	}
 	return true
 }
 

@@ -47,6 +47,7 @@ func formatDevice(d model.DeviceSnapshot, language displayLanguage, monitored bo
 		"Parent instance ID: " + d.ParentInstanceID,
 		"Parent / hub chain: " + strings.Join(d.ParentChain, " <- "),
 		"Parent / hub states: " + formatParentStates(d.ParentStates),
+		"USB3/USB4/Type-C topology hints: " + strings.Join(model.TopologyHints(d), " | "),
 		"Parent low-power while child D0: " + formatBool(d.ParentLowPowerChildD0),
 		"Parent / hub tree:",
 	}

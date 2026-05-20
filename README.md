@@ -2,12 +2,13 @@
 
 USB Suspend Watch is an installer-free Windows desktop utility for watching connected USB devices and recording suspected USB Selective Suspend transitions.
 
-The v0.8.5 release uses one production-ready monitoring layer and one lab-only experimental layer:
+The v0.8.6 release uses one production-ready monitoring layer and two optional lab-only capture layers:
 
 - Simple mode: runs without elevation, watches `WM_DEVICECHANGE`, polls SetupAPI, and reads `SPDRP_DEVICE_POWER_DATA`.
 - Experimental ETW mode: starts from the GUI button and may show UAC because Windows requires elevated rights for USB ETW sessions.
+- Optional USBPcap mode: starts an installed `USBPcapCMD.exe` to save a `.pcap` capture for the selected device's USBPcap device address when it can be matched, or all devices on the only available USBPcap interface when matching is unavailable.
 
-No driver, service, installer, USBPcap dependency, or telemetry is used.
+No driver, service, installer, bundled USBPcap binary, or telemetry is included. USBPcap capture is used only when USBPcap/Wireshark USBPcap is already installed or `USBPCAP_CMD` points to `USBPcapCMD.exe`.
 
 ## Features
 
@@ -22,6 +23,7 @@ No driver, service, installer, USBPcap dependency, or telemetry is used.
 - Shows a selected-device sequence pane for D0/D3, PnP, parent/hub, wake, and related converter/port events observed after the app started.
 - Separates the diagnostic summary from pretty-printed raw JSON evidence so the exact D0/D3, parent-state, wake, and same-device-candidate evidence can be copied.
 - Opens a dedicated device details window when a connected USB device row is double-clicked.
+- Starts and stops optional USBPcap captures from the GUI for the selected connected USB device, parent hub, or watched target. Captures are saved under the app log folder with a companion metadata JSON file.
 - Records PnP arrival and removal events.
 - Records system sleep and wake broadcasts so USB changes can be correlated with PC suspend/resume.
 - Captures `powercfg /lastwake` after wake broadcasts when Windows allows it and labels wake confidence as high, medium, low, or unknown based on available evidence.
@@ -59,7 +61,7 @@ This is an inference from Windows device power data, not a kernel trace.
 
 ### Experimental ETW Mode
 
-The ETW helper is not considered production-ready in v0.8.5 because provider behavior differs by Windows build, permissions, and USB stack provider.
+The ETW helper is not considered production-ready in v0.8.6 because provider behavior differs by Windows build, permissions, and USB stack provider.
 
 For lab testing, click `Start ETW (experimental)`. Depending on the machine policy, this may show UAC. If UAC appears, approve it to start the elevated helper process.
 If no helper log appears within 45 seconds, the GUI records a retryable error so the app does not wait forever. The helper enables USB ETW providers one by one; if one provider is unavailable, the others can still run and the unavailable provider is written to the ETW helper log.
@@ -81,6 +83,20 @@ $env:USB_SUSPEND_WATCH_ETW_RUNDOWN = "1"
 For production-grade ETW validation today, use Microsoft `logman` traces and compare them with this app's simple-mode timeline.
 
 When the GUI starts an elevated helper, the status area keeps showing the GUI's own privilege and adds the helper privilege once the helper writes its startup log. This makes it clear whether the GUI is still a standard-user process while the ETW helper is actually elevated.
+
+### Optional USBPcap Mode
+
+USBPcap mode is for lab inspection of USB exchanges for the selected target. Select a connected USB device or parent/hub row and click `Start USBPcap`.
+
+The app looks for `USBPcapCMD.exe` in this order:
+
+- `USBPCAP_CMD`
+- `PATH`
+- common USBPcap and Wireshark extcap install locations
+
+If USBPcap exposes an extcap device list that matches the selected COM port, serial, VID/PID, or device name, the app starts USBPcap with `--devices <address>`. If it cannot prove a device-address match and USBPcap exposes only one interface, it falls back to `-A` and records a warning because sibling device traffic can be included. If multiple USBPcap interfaces exist and none matches the selected target, the app refuses to guess the Root Hub.
+
+USBPcap is a software URB capture, not a hardware bus analyzer. The resulting `.pcap` is intended to be opened in Wireshark. Captures may contain payloads from the selected device and, on Root Hub fallback, other devices on the same hub, so treat the files as sensitive diagnostic data.
 
 ## Device Evidence And UI Layout
 
@@ -128,6 +144,7 @@ If that location is not writable, logs fall back to:
 
 Each log line is one JSON object.
 Power transition and PnP events include a `raw` object with the SetupAPI evidence above. ETW events include provider properties in the same `raw` object. Wake events may include `lastwake`, `lastwake_error`, `wake_confidence`, `wake_reasons`, and `wake_correlation`.
+USBPcap events may include `usbpcap_cmd`, `usbpcap_args`, `usbpcap_interface`, `usbpcap_device_addresses`, `usbpcap_output`, `usbpcap_metadata`, `usbpcap_capture_all`, `usbpcap_match_reasons`, and `usbpcap_warning`.
 
 New v0.8.2 raw keys are additive and keep existing JSONL compatibility. They may include `diagnostic_score`, `diagnostic_reasons`, `session_started_at`, and `diagnostic_summary`.
 
@@ -161,7 +178,7 @@ go test ./...
 go vet ./...
 go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
 go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
-.\build.ps1 -Version v0.8.5
+.\build.ps1 -Version v0.8.6
 ```
 
 `go test -race` requires CGO and a C compiler on Windows. The release package is built with `CGO_ENABLED=0`.
@@ -171,3 +188,5 @@ go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
 - [USB Event Tracing for Windows](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-event-tracing-for-windows)
 - [How to capture a USB event trace with Logman](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/how-to-capture-a-usb-event-trace)
 - [Microsoft USBView sample](https://learn.microsoft.com/en-us/samples/microsoft/windows-driver-samples/usbview-sample-application/)
+- [USBPcap for Windows](https://github.com/desowin/usbpcap)
+- [Wireshark USB capture setup](https://wiki.wireshark.org/CaptureSetup/USB)

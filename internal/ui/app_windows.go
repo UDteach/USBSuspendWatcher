@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -20,6 +21,7 @@ import (
 	"usb-suspend-watch/internal/model"
 	"usb-suspend-watch/internal/monitor"
 	"usb-suspend-watch/internal/platform"
+	"usb-suspend-watch/internal/usbpcap"
 )
 
 type Config struct {
@@ -29,47 +31,49 @@ type Config struct {
 type app struct {
 	cfg Config
 
-	mw               *walk.MainWindow
-	refreshButton    *walk.PushButton
-	startETWButton   *walk.PushButton
-	stopETWButton    *walk.PushButton
-	openLogsButton   *walk.PushButton
-	exportButton     *walk.PushButton
-	languageLabel    *walk.Label
-	languageCombo    *walk.ComboBox
-	statusGroup      *walk.GroupBox
-	deviceView       *walk.TableView
-	groupView        *walk.TableView
-	usbChangeView    *walk.TableView
-	eventView        *walk.TableView
-	sequenceView     *walk.TableView
-	details          *walk.TextEdit
-	rawDetails       *walk.TextEdit
-	devicesLabel     *walk.Label
-	groupsLabel      *walk.Label
-	usbChangesLabel  *walk.Label
-	timelineLabel    *walk.Label
-	sequenceLabel    *walk.Label
-	detailsLabel     *walk.Label
-	rawDetailsLabel  *walk.Label
-	typeLabel        *walk.Label
-	targetLabel      *walk.Label
-	confidenceLabel  *walk.Label
-	levelLabel       *walk.Label
-	statusLabel      *walk.Label
-	summaryLabel     *walk.Label
-	privilegeLabel   *walk.Label
-	logPathLabel     *walk.Label
-	eventTypeFilter  *walk.ComboBox
-	targetFilter     *walk.ComboBox
-	confidenceFilter *walk.ComboBox
-	levelFilter      *walk.ComboBox
-	eventSearch      *walk.LineEdit
-	notifyIcon       *walk.NotifyIcon
-	showAction       *walk.Action
-	logAction        *walk.Action
-	exitAction       *walk.Action
-	icon             *walk.Icon
+	mw                 *walk.MainWindow
+	refreshButton      *walk.PushButton
+	startETWButton     *walk.PushButton
+	stopETWButton      *walk.PushButton
+	startUSBPcapButton *walk.PushButton
+	stopUSBPcapButton  *walk.PushButton
+	openLogsButton     *walk.PushButton
+	exportButton       *walk.PushButton
+	languageLabel      *walk.Label
+	languageCombo      *walk.ComboBox
+	statusGroup        *walk.GroupBox
+	deviceView         *walk.TableView
+	groupView          *walk.TableView
+	usbChangeView      *walk.TableView
+	eventView          *walk.TableView
+	sequenceView       *walk.TableView
+	details            *walk.TextEdit
+	rawDetails         *walk.TextEdit
+	devicesLabel       *walk.Label
+	groupsLabel        *walk.Label
+	usbChangesLabel    *walk.Label
+	timelineLabel      *walk.Label
+	sequenceLabel      *walk.Label
+	detailsLabel       *walk.Label
+	rawDetailsLabel    *walk.Label
+	typeLabel          *walk.Label
+	targetLabel        *walk.Label
+	confidenceLabel    *walk.Label
+	levelLabel         *walk.Label
+	statusLabel        *walk.Label
+	summaryLabel       *walk.Label
+	privilegeLabel     *walk.Label
+	logPathLabel       *walk.Label
+	eventTypeFilter    *walk.ComboBox
+	targetFilter       *walk.ComboBox
+	confidenceFilter   *walk.ComboBox
+	levelFilter        *walk.ComboBox
+	eventSearch        *walk.LineEdit
+	notifyIcon         *walk.NotifyIcon
+	showAction         *walk.Action
+	logAction          *walk.Action
+	exitAction         *walk.Action
+	icon               *walk.Icon
 
 	devices        *deviceTableModel
 	groups         *adapterGroupTableModel
@@ -88,10 +92,15 @@ type app struct {
 	wndProc    uintptr
 	oldWndProc uintptr
 
-	etwRunning     bool
-	etwStopFile    string
-	etwHelperAdmin *bool
-	mu             sync.Mutex
+	etwRunning        bool
+	etwStopFile       string
+	etwHelperAdmin    *bool
+	usbpcapStarting   bool
+	usbpcapRunning    bool
+	usbpcapStartID    int
+	usbpcapCmd        *exec.Cmd
+	usbpcapOutputPath string
+	mu                sync.Mutex
 
 	selectionChanging bool
 	localizing        bool
@@ -186,6 +195,8 @@ func (a *app) createWindow() error {
 					d.PushButton{AssignTo: &a.refreshButton, Text: text.refreshButton, OnClicked: a.refreshDevices},
 					d.PushButton{AssignTo: &a.startETWButton, Text: text.startETWButton, OnClicked: a.startETW},
 					d.PushButton{AssignTo: &a.stopETWButton, Text: text.stopETWButton, OnClicked: a.stopETW},
+					d.PushButton{AssignTo: &a.startUSBPcapButton, Text: text.startUSBPcapButton, OnClicked: a.startUSBPcap},
+					d.PushButton{AssignTo: &a.stopUSBPcapButton, Text: text.stopUSBPcapButton, OnClicked: a.stopUSBPcap},
 					d.PushButton{AssignTo: &a.openLogsButton, Text: text.openLogsButton, OnClicked: a.openLogFolder},
 					d.PushButton{AssignTo: &a.exportButton, Text: text.exportVisibleButton, OnClicked: a.exportVisibleLog},
 					d.Label{AssignTo: &a.languageLabel, Text: text.languageLabel},
@@ -467,6 +478,7 @@ func (a *app) installWndProc() {
 }
 
 func (a *app) cleanup() {
+	a.stopUSBPcapProcess(false)
 	a.stopETW()
 	if a.oldWndProc != 0 && a.mw != nil {
 		win.SetWindowLongPtr(a.mw.Handle(), win.GWLP_WNDPROC, a.oldWndProc)
@@ -892,6 +904,9 @@ func (a *app) isEventMonitored(event model.Event) bool {
 	if a.devices == nil {
 		return true
 	}
+	if event.Source == model.SourceUSBPcap {
+		return true
+	}
 	if hasDeviceIdentity(event.Device) && !eventMatchesTarget(event, a.currentTargetFilterIndex()) {
 		return false
 	}
@@ -977,6 +992,8 @@ func (a *app) applyLanguage() {
 	setButtonText(a.refreshButton, text.refreshButton)
 	setButtonText(a.startETWButton, text.startETWButton)
 	setButtonText(a.stopETWButton, text.stopETWButton)
+	setButtonText(a.startUSBPcapButton, text.startUSBPcapButton)
+	setButtonText(a.stopUSBPcapButton, text.stopUSBPcapButton)
 	setButtonText(a.openLogsButton, text.openLogsButton)
 	setButtonText(a.exportButton, text.exportVisibleButton)
 	setLabelText(a.languageLabel, text.languageLabel)
@@ -1211,6 +1228,254 @@ func wakeDiagnosticRaw(raw map[string]string, correlation []model.Event) map[str
 		out["wake_reasons"] = strings.Join(reasons, " | ")
 	}
 	return out
+}
+
+func (a *app) startUSBPcap() {
+	target, ok := a.currentDeviceSelectionTarget()
+	if !ok || !hasDeviceIdentity(target) {
+		a.addEvent(model.Event{
+			Time:       time.Now(),
+			Type:       model.EventError,
+			Source:     model.SourceUSBPcap,
+			Confidence: model.ConfidenceLow,
+			Message:    "select a connected USB device or parent hub before starting USBPcap capture",
+		}, true)
+		a.updateStatus(statusUSBPcapFailed)
+		return
+	}
+	a.mu.Lock()
+	if a.usbpcapStarting || a.usbpcapRunning {
+		a.mu.Unlock()
+		a.updateStatus(statusUSBPcapRunning)
+		return
+	}
+	a.usbpcapStarting = true
+	a.usbpcapStartID++
+	startID := a.usbpcapStartID
+	a.mu.Unlock()
+	a.updateStatus(statusUSBPcapDiscovering)
+	go a.startUSBPcapForDevice(startID, target)
+}
+
+func (a *app) startUSBPcapForDevice(startID int, target model.DeviceSnapshot) {
+	fail := func(message string, raw map[string]string) {
+		a.mw.Synchronize(func() {
+			a.mu.Lock()
+			if a.usbpcapStartID != startID {
+				a.mu.Unlock()
+				return
+			}
+			a.usbpcapStarting = false
+			a.mu.Unlock()
+			a.addEvent(model.Event{
+				Time:       time.Now(),
+				Type:       model.EventError,
+				Source:     model.SourceUSBPcap,
+				Confidence: model.ConfidenceLow,
+				Device:     target,
+				Message:    message,
+				Raw:        raw,
+			}, true)
+			a.updateStatus(statusUSBPcapFailed)
+		})
+	}
+
+	exePath, tried, err := usbpcap.DiscoverExecutable()
+	if err != nil {
+		fail("USBPcapCMD.exe not found; install USBPcap/Wireshark USBPcap or set USBPCAP_CMD", map[string]string{
+			"usbpcap_error":       err.Error(),
+			"usbpcap_paths_tried": strings.Join(tried, " | "),
+		})
+		return
+	}
+	interfaces, interfaceOutput, err := usbpcap.DiscoverInterfaces(exePath)
+	if err != nil {
+		fail("failed to list USBPcap interfaces: "+err.Error(), map[string]string{
+			"usbpcap_cmd":        exePath,
+			"usbpcap_interfaces": interfaceOutput,
+		})
+		return
+	}
+	stamp := time.Now().Format("20060102-150405")
+	outputPath := filepath.Join(a.logDir, "usbpcap-"+stamp+".pcap")
+	metadataPath := filepath.Join(a.logDir, "usbpcap-"+stamp+".json")
+	plan, err := usbpcap.BuildPlan(exePath, interfaces, target, outputPath, metadataPath)
+	if err != nil {
+		fail("failed to build USBPcap capture plan: "+err.Error(), map[string]string{
+			"usbpcap_cmd":        exePath,
+			"usbpcap_interfaces": interfaceOutput,
+		})
+		return
+	}
+	if err := writeUSBPcapMetadata(plan, target, a.sessionStarted); err != nil {
+		fail("failed to write USBPcap metadata: "+err.Error(), usbpcapRaw(plan, target, err.Error()))
+		return
+	}
+	if !a.usbpcapStartStillActive(startID) {
+		return
+	}
+	cmd := exec.Command(plan.ExePath, plan.Args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if err := cmd.Start(); err != nil {
+		fail("failed to start USBPcapCMD.exe: "+err.Error(), usbpcapRaw(plan, target, err.Error()))
+		return
+	}
+
+	a.mw.Synchronize(func() {
+		a.mu.Lock()
+		if a.usbpcapStartID != startID || !a.usbpcapStarting {
+			a.mu.Unlock()
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			return
+		}
+		a.usbpcapStarting = false
+		a.usbpcapRunning = true
+		a.usbpcapCmd = cmd
+		a.usbpcapOutputPath = outputPath
+		a.mu.Unlock()
+		message := "USBPcap capture started for " + target.DisplayName()
+		if plan.Warning != "" {
+			message += "; " + plan.Warning
+		}
+		a.addEvent(model.Event{
+			Time:       time.Now(),
+			Type:       model.EventInfo,
+			Source:     model.SourceUSBPcap,
+			Confidence: model.ConfidenceMedium,
+			Device:     target,
+			Message:    message,
+			Raw:        usbpcapRaw(plan, target, ""),
+		}, true)
+		a.updateStatus(statusUSBPcapRunning)
+	})
+	go a.waitUSBPcap(cmd, target, outputPath, metadataPath)
+}
+
+func (a *app) usbpcapStartStillActive(startID int) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.usbpcapStartID == startID && a.usbpcapStarting
+}
+
+func (a *app) waitUSBPcap(cmd *exec.Cmd, target model.DeviceSnapshot, outputPath, metadataPath string) {
+	err := cmd.Wait()
+	a.mw.Synchronize(func() {
+		a.mu.Lock()
+		if a.usbpcapCmd == cmd {
+			a.usbpcapRunning = false
+			a.usbpcapStarting = false
+			a.usbpcapCmd = nil
+			a.usbpcapOutputPath = ""
+		}
+		a.mu.Unlock()
+		raw := map[string]string{
+			"usbpcap_output":   outputPath,
+			"usbpcap_metadata": metadataPath,
+		}
+		message := "USBPcap capture stopped"
+		eventType := model.EventInfo
+		confidence := model.ConfidenceMedium
+		if err != nil {
+			raw["usbpcap_exit"] = err.Error()
+			message = "USBPcap capture stopped: " + err.Error()
+			if !strings.Contains(strings.ToLower(err.Error()), "killed") {
+				eventType = model.EventError
+				confidence = model.ConfidenceLow
+			}
+		}
+		a.addEvent(model.Event{
+			Time:       time.Now(),
+			Type:       eventType,
+			Source:     model.SourceUSBPcap,
+			Confidence: confidence,
+			Device:     target,
+			Message:    message,
+			Raw:        raw,
+		}, true)
+		if eventType == model.EventError {
+			a.updateStatus(statusUSBPcapFailed)
+			return
+		}
+		a.updateStatus(statusUSBPcapStopped)
+	})
+}
+
+func (a *app) stopUSBPcap() {
+	a.stopUSBPcapProcess(true)
+}
+
+func (a *app) stopUSBPcapProcess(addLogEvent bool) {
+	a.mu.Lock()
+	cmd := a.usbpcapCmd
+	outputPath := a.usbpcapOutputPath
+	a.usbpcapStartID++
+	a.usbpcapStarting = false
+	a.usbpcapRunning = false
+	a.usbpcapCmd = nil
+	a.usbpcapOutputPath = ""
+	a.mu.Unlock()
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	if addLogEvent {
+		a.addEvent(model.Event{
+			Time:       time.Now(),
+			Type:       model.EventInfo,
+			Source:     model.SourceUSBPcap,
+			Confidence: model.ConfidenceMedium,
+			Message:    "USBPcap stop requested",
+			Raw: map[string]string{
+				"usbpcap_output": outputPath,
+			},
+		}, true)
+		a.updateStatus(statusUSBPcapStopped)
+	}
+}
+
+func writeUSBPcapMetadata(plan usbpcap.Plan, target model.DeviceSnapshot, sessionStarted time.Time) error {
+	data, err := json.MarshalIndent(map[string]interface{}{
+		"session_started_at": sessionStarted.Format(time.RFC3339Nano),
+		"target":             target,
+		"capture_plan":       plan,
+		"warning":            "USBPcap is software URB capture. Root-hub fallback can include sibling device traffic.",
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(plan.MetadataPath, data, 0644)
+}
+
+func usbpcapRaw(plan usbpcap.Plan, target model.DeviceSnapshot, errText string) map[string]string {
+	raw := map[string]string{
+		"usbpcap_cmd":               plan.ExePath,
+		"usbpcap_args":              strings.Join(plan.Args, " "),
+		"usbpcap_interface":         plan.Interface.Value,
+		"usbpcap_interface_display": plan.Interface.Display,
+		"usbpcap_output":            plan.OutputPath,
+		"usbpcap_metadata":          plan.MetadataPath,
+		"usbpcap_capture_all":       fmt.Sprint(plan.CaptureAll),
+		"usbpcap_target":            target.DisplayName(),
+		"usbpcap_discovery":         plan.DiscoverySummary,
+	}
+	if len(plan.DeviceAddresses) > 0 {
+		parts := make([]string, 0, len(plan.DeviceAddresses))
+		for _, address := range plan.DeviceAddresses {
+			parts = append(parts, fmt.Sprint(address))
+		}
+		raw["usbpcap_device_addresses"] = strings.Join(parts, ",")
+	}
+	if len(plan.MatchReasons) > 0 {
+		raw["usbpcap_match_reasons"] = strings.Join(plan.MatchReasons, " | ")
+	}
+	if plan.Warning != "" {
+		raw["usbpcap_warning"] = plan.Warning
+	}
+	if errText != "" {
+		raw["usbpcap_error"] = errText
+	}
+	return raw
 }
 
 func (a *app) startETW() {

@@ -421,4 +421,7 @@ func TestAppSuppressesEventsForUnmonitoredDevice(t *testing.T) {
 	if !a.isEventMonitored(model.Event{Type: model.EventInfo, Source: model.SourceApp}) {
 		t.Fatalf("app-level event without a device should remain visible")
 	}
+	if !a.isEventMonitored(model.Event{Type: model.EventInfo, Source: model.SourceUSBPcap, Device: device}) {
+		t.Fatalf("USBPcap capture events should remain visible even when the target device is unchecked")
+	}
 }

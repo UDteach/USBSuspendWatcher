@@ -113,11 +113,14 @@ func eventMatchesDisplayLevel(event model.Event, index int) bool {
 	case 2:
 		return true
 	default:
-		return event.Type != model.EventInfo
+		return event.Type != model.EventInfo || event.Source == model.SourceUSBPcap
 	}
 }
 
 func eventIsImportant(event model.Event) bool {
+	if event.Source == model.SourceUSBPcap {
+		return true
+	}
 	switch event.Type {
 	case model.EventSuspectSuspend,
 		model.EventPowerD0Exit,
@@ -180,6 +183,9 @@ func eventMark(event model.Event, language displayLanguage) string {
 	text := stringsFor(language)
 	if event.Device.ParentLowPowerChildD0 {
 		return "Parent D3"
+	}
+	if event.Source == model.SourceUSBPcap {
+		return "pcap"
 	}
 	switch event.Type {
 	case model.EventSuspectSuspend, model.EventPowerD0Exit, model.EventIdleNotification:

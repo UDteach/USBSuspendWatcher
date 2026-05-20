@@ -155,22 +155,23 @@ func TestUSBChangeTimelineEventSelection(t *testing.T) {
 func TestFilterEventsDisplayLevelSuppressesInfoByDefault(t *testing.T) {
 	events := []model.Event{
 		{Type: model.EventInfo, Confidence: model.ConfidenceHigh, Message: "noisy ETW state machine event"},
+		{Type: model.EventInfo, Source: model.SourceUSBPcap, Confidence: model.ConfidenceMedium, Message: "USBPcap capture started"},
 		{Type: model.EventPnPArrival, Confidence: model.ConfidenceMedium, Message: "device arrival"},
 		{Type: model.EventPowerD0Exit, Confidence: model.ConfidenceHigh, Message: "D0 exit"},
 	}
 
 	filtered := filterEvents(events, eventFilter{})
-	if len(filtered) != 2 {
-		t.Fatalf("default display level should hide only info events, got %d", len(filtered))
+	if len(filtered) != 3 {
+		t.Fatalf("default display level should hide noisy info events but keep USBPcap events, got %d", len(filtered))
 	}
 	for _, event := range filtered {
-		if event.Type == model.EventInfo {
-			t.Fatalf("info event should be hidden by default: %#v", event)
+		if event.Type == model.EventInfo && event.Source != model.SourceUSBPcap {
+			t.Fatalf("generic info event should be hidden by default: %#v", event)
 		}
 	}
 
 	important := filterEvents(events, eventFilter{LevelIndex: 1})
-	if len(important) != 1 || important[0].Type != model.EventPowerD0Exit {
+	if len(important) != 2 || important[0].Source != model.SourceUSBPcap || important[1].Type != model.EventPowerD0Exit {
 		t.Fatalf("important-only display level returned %#v", important)
 	}
 
@@ -201,6 +202,13 @@ func TestEventMark(t *testing.T) {
 		if got := eventMark(model.Event{Type: typ}, languageEnglish); got != want.en {
 			t.Fatalf("eventMark(%s, en) = %q, want %q", typ, got, want.en)
 		}
+	}
+}
+
+func TestEventMarkUSBPcap(t *testing.T) {
+	got := eventMark(model.Event{Type: model.EventInfo, Source: model.SourceUSBPcap}, languageEnglish)
+	if got != "pcap" {
+		t.Fatalf("USBPcap mark = %q, want pcap", got)
 	}
 }
 

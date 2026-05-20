@@ -33,6 +33,7 @@ const (
 	SourceETWUSBXHCI       Source = "etw_usbxhci"
 	SourcePowerBroadcast   Source = "wm_powerbroadcast"
 	SourcePowercfgLastWake Source = "powercfg_lastwake"
+	SourceUSBPcap          Source = "usbpcap"
 	SourceApp              Source = "app"
 )
 

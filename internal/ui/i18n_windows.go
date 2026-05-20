@@ -14,12 +14,18 @@ const (
 	statusETWReceived          = "ETW helper events received"
 	statusETWStopped           = "ETW helper stopped"
 	statusETWFailed            = "ETW helper failed"
+	statusUSBPcapDiscovering   = "USBPcap discovering target"
+	statusUSBPcapRunning       = "USBPcap capture running"
+	statusUSBPcapStopped       = "USBPcap capture stopped"
+	statusUSBPcapFailed        = "USBPcap capture failed"
 )
 
 type uiStrings struct {
 	refreshButton       string
 	startETWButton      string
 	stopETWButton       string
+	startUSBPcapButton  string
+	stopUSBPcapButton   string
 	openLogsButton      string
 	exportVisibleButton string
 	languageLabel       string
@@ -123,6 +129,8 @@ func japaneseStrings() uiStrings {
 		refreshButton:       "更新",
 		startETWButton:      "ETW開始（実験）",
 		stopETWButton:       "ETW停止",
+		startUSBPcapButton:  "USBPcap開始",
+		stopUSBPcapButton:   "USBPcap停止",
 		openLogsButton:      "ログフォルダ",
 		exportVisibleButton: "表示ログ出力",
 		languageLabel:       "Language",
@@ -204,6 +212,10 @@ func japaneseStrings() uiStrings {
 			statusETWReceived:          "ETWヘルパーイベント受信",
 			statusETWStopped:           "ETWヘルパー停止",
 			statusETWFailed:            "ETWヘルパー失敗",
+			statusUSBPcapDiscovering:   "USBPcap対象確認中",
+			statusUSBPcapRunning:       "USBPcapキャプチャ中",
+			statusUSBPcapStopped:       "USBPcapキャプチャ停止",
+			statusUSBPcapFailed:        "USBPcapキャプチャ失敗",
 		},
 	}
 }
@@ -213,6 +225,8 @@ func englishStrings() uiStrings {
 		refreshButton:       "Refresh",
 		startETWButton:      "Start ETW experimental",
 		stopETWButton:       "Stop ETW",
+		startUSBPcapButton:  "Start USBPcap",
+		stopUSBPcapButton:   "Stop USBPcap",
 		openLogsButton:      "Open logs",
 		exportVisibleButton: "Export visible",
 		languageLabel:       "Language",
@@ -294,6 +308,10 @@ func englishStrings() uiStrings {
 			statusETWReceived:          "ETW helper events received",
 			statusETWStopped:           "ETW helper stopped",
 			statusETWFailed:            "ETW helper failed",
+			statusUSBPcapDiscovering:   "USBPcap discovering target",
+			statusUSBPcapRunning:       "USBPcap capture running",
+			statusUSBPcapStopped:       "USBPcap capture stopped",
+			statusUSBPcapFailed:        "USBPcap capture failed",
 		},
 	}
 }

@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.8.6
+
+- Added optional USBPcap capture controls for the selected connected USB device, parent hub, or watched target.
+- Detects `USBPcapCMD.exe` from `USBPCAP_CMD`, `PATH`, and common USBPcap/Wireshark extcap install locations without bundling or installing a driver.
+- Reads USBPcap extcap interface/config output to match the selected target by COM port, serial, VID/PID, or device name, then starts `--devices <address>` capture when a device address can be matched.
+- Falls back to capture-all with an explicit warning only when USBPcap exposes a single interface; with multiple unmatched interfaces it refuses to guess the Root Hub.
+- Saves `.pcap` output and companion metadata JSON under the log folder, and adds searchable `usbpcap_*` raw evidence to JSONL events.
+- Keeps USBPcap start/stop events visible even under the default timeline level and FTDI target filters.
+- Added parser/planner tests for USBPcap extcap output and regression tests for USBPcap timeline visibility.
+
 ## v0.8.5
 
 - Fixed parent/hub rows in the connected USB tree so root hubs, USB3 hubs, USB4 routers, and other parent nodes can be checked, watched, selected, and opened with double-click details.

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -50,6 +51,21 @@ func TestFilterEventsByTypeConfidenceAndQuery(t *testing.T) {
 	}
 }
 
+func TestPowercfgLastWakeRawFromOutput(t *testing.T) {
+	raw := powercfgLastWakeRawFromOutput([]byte("Wake History Count - 1\r\n"), nil)
+	if raw["lastwake"] != "Wake History Count - 1" {
+		t.Fatalf("lastwake output not captured: %#v", raw)
+	}
+	if raw["lastwake_source"] != string(model.SourcePowercfgLastWake) {
+		t.Fatalf("lastwake source not captured: %#v", raw)
+	}
+
+	raw = powercfgLastWakeRawFromOutput(nil, errors.New("powercfg failed"))
+	if raw["lastwake_error"] != "powercfg failed" {
+		t.Fatalf("lastwake error not captured: %#v", raw)
+	}
+}
+
 func TestFilterEventsHighOnlyAndError(t *testing.T) {
 	events := []model.Event{
 		{Type: model.EventError, Confidence: model.ConfidenceHigh, Message: "first"},
@@ -63,6 +79,75 @@ func TestFilterEventsHighOnlyAndError(t *testing.T) {
 	}
 	if filtered[0].Message != "first" {
 		t.Fatalf("unexpected filtered event: %#v", filtered[0])
+	}
+}
+
+func TestFTDICOMOnlyTargetFilter(t *testing.T) {
+	ftdi := model.Event{
+		Type:       model.EventPnPArrival,
+		Confidence: model.ConfidenceHigh,
+		Device: model.DeviceSnapshot{
+			FriendlyName: "USB Serial Port (COM52)",
+			VID:          "0403",
+			PID:          "6001",
+			COMPort:      "COM52",
+		},
+	}
+	other := model.Event{
+		Type:       model.EventPnPArrival,
+		Confidence: model.ConfidenceHigh,
+		Device: model.DeviceSnapshot{
+			FriendlyName: "USB Keyboard",
+			VID:          "1234",
+			PID:          "5678",
+		},
+	}
+	converter := model.Event{
+		Type:       model.EventPnPArrival,
+		Confidence: model.ConfidenceHigh,
+		Device: model.DeviceSnapshot{
+			FriendlyName:       "USB Serial Converter",
+			VID:                "0403",
+			PID:                "6001",
+			RelationRole:       "converter",
+			LogicalGroupID:     "vidpid-serial:0403:6001:FT123",
+			RelatedInstanceIDs: []string{`FTDIPORT\VID_0403+PID_6001+FT123\0000`},
+		},
+	}
+
+	filtered := filterEvents([]model.Event{ftdi, other, converter}, eventFilter{TargetIndex: 1})
+	if len(filtered) != 2 || filtered[0].Device.COMPort != "COM52" || filtered[1].Device.RelationRole != "converter" {
+		t.Fatalf("FTDI COM filter returned %#v", filtered)
+	}
+
+	devices := filterDevicesForTarget([]model.DeviceSnapshot{ftdi.Device, other.Device, converter.Device}, 1)
+	if len(devices) != 2 || devices[0].COMPort != "COM52" || devices[1].RelationRole != "converter" {
+		t.Fatalf("device target filter returned %#v", devices)
+	}
+}
+
+func TestPowercfgLastWakeEventSearchesRawData(t *testing.T) {
+	event := model.Event{
+		Type:   model.EventSystemWake,
+		Source: model.SourcePowerBroadcast,
+		Raw: map[string]string{
+			"lastwake": "Wake History Count - 1",
+		},
+	}
+	if !eventMatchesFilter(event, eventFilter{Query: "wake history"}) {
+		t.Fatalf("lastwake raw output should be searchable")
+	}
+}
+
+func TestUSBChangeTimelineEventSelection(t *testing.T) {
+	if !isUSBChangeTimelineEvent(model.Event{Type: model.EventPowerD0Exit}) {
+		t.Fatalf("D0 exit should be shown in USB changes")
+	}
+	if !isUSBChangeTimelineEvent(model.Event{Type: model.EventSystemWake}) {
+		t.Fatalf("system wake should be shown in USB changes")
+	}
+	if isUSBChangeTimelineEvent(model.Event{Type: model.EventInfo}) {
+		t.Fatalf("generic info should not be shown in USB changes")
 	}
 }
 
@@ -238,6 +323,9 @@ func TestLanguageStringsUseSingleLanguageLabels(t *testing.T) {
 	}
 	if len(ja.levelOptions) != 3 || ja.levelOptions[0] != "Info以外" {
 		t.Fatalf("Japanese level options should default to no-info: %#v", ja.levelOptions)
+	}
+	if len(en.targetOptions) != 2 || en.targetOptions[1] != "FTDI COM only" {
+		t.Fatalf("English target options should include FTDI filter: %#v", en.targetOptions)
 	}
 	if len(en.levelOptions) != 3 || en.levelOptions[0] != "No info" {
 		t.Fatalf("English level options should default to no-info: %#v", en.levelOptions)

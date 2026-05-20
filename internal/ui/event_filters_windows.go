@@ -9,6 +9,7 @@ import (
 
 type eventFilter struct {
 	TypeIndex       int
+	TargetIndex     int
 	ConfidenceIndex int
 	LevelIndex      int
 	Query           string
@@ -28,6 +29,9 @@ func eventMatchesFilter(event model.Event, filter eventFilter) bool {
 	if !eventMatchesType(event, filter.TypeIndex) {
 		return false
 	}
+	if !eventMatchesTarget(event, filter.TargetIndex) {
+		return false
+	}
 	if !eventMatchesConfidence(event, filter.ConfidenceIndex) {
 		return false
 	}
@@ -39,6 +43,39 @@ func eventMatchesFilter(event model.Event, filter eventFilter) bool {
 		return true
 	}
 	return strings.Contains(strings.ToLower(eventSearchText(event)), query)
+}
+
+func eventMatchesTarget(event model.Event, index int) bool {
+	if index != 1 {
+		return true
+	}
+	if !hasDeviceIdentity(event.Device) {
+		return true
+	}
+	return deviceMatchesTarget(event.Device, index)
+}
+
+func filterDevicesForTarget(devices []model.DeviceSnapshot, index int) []model.DeviceSnapshot {
+	if index != 1 {
+		out := make([]model.DeviceSnapshot, len(devices))
+		copy(out, devices)
+		return out
+	}
+	out := make([]model.DeviceSnapshot, 0, len(devices))
+	for _, device := range devices {
+		if deviceMatchesTarget(device, index) {
+			out = append(out, device)
+		}
+	}
+	return out
+}
+
+func deviceMatchesTarget(device model.DeviceSnapshot, index int) bool {
+	if index != 1 {
+		return true
+	}
+	return device.LooksLikeFTDISerial() ||
+		(device.HasFTDISignal() && device.RelationRole == "converter" && device.LogicalGroupID != "" && len(device.RelatedInstanceIDs) > 0)
 }
 
 func eventMatchesType(event model.Event, index int) bool {
@@ -108,6 +145,10 @@ func eventSearchText(event model.Event) string {
 		event.Device.HardwareID,
 		event.Device.VIDPID(),
 		event.Device.COMPort,
+		event.Device.LogicalGroupID,
+		event.Device.LogicalGroupReason,
+		event.Device.RelationRole,
+		strings.Join(event.Device.RelatedInstanceIDs, " "),
 		event.Device.Location,
 		strings.Join(event.Device.LocationPaths, " "),
 		event.Device.Manufacturer,
@@ -117,6 +158,7 @@ func eventSearchText(event model.Event) string {
 		event.Device.Serial,
 		event.Device.ParentInstanceID,
 		strings.Join(event.Device.ParentChain, " "),
+		formatParentStates(event.Device.ParentStates),
 		event.Device.PowerStateEvidence,
 	}
 	if len(event.Raw) > 0 {

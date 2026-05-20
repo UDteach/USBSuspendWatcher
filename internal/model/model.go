@@ -26,13 +26,14 @@ const (
 type Source string
 
 const (
-	SourceSetupAPIPoll   Source = "setupapi_poll"
-	SourceDeviceChange   Source = "wm_devicechange"
-	SourceETWUSBHUB3     Source = "etw_usbhub3"
-	SourceETWUCX         Source = "etw_ucx"
-	SourceETWUSBXHCI     Source = "etw_usbxhci"
-	SourcePowerBroadcast Source = "wm_powerbroadcast"
-	SourceApp            Source = "app"
+	SourceSetupAPIPoll     Source = "setupapi_poll"
+	SourceDeviceChange     Source = "wm_devicechange"
+	SourceETWUSBHUB3       Source = "etw_usbhub3"
+	SourceETWUCX           Source = "etw_ucx"
+	SourceETWUSBXHCI       Source = "etw_usbxhci"
+	SourcePowerBroadcast   Source = "wm_powerbroadcast"
+	SourcePowercfgLastWake Source = "powercfg_lastwake"
+	SourceApp              Source = "app"
 )
 
 type Confidence string
@@ -54,31 +55,44 @@ const (
 )
 
 type DeviceSnapshot struct {
-	InstanceID               string           `json:"instance_id"`
-	Description              string           `json:"description,omitempty"`
-	FriendlyName             string           `json:"friendly_name,omitempty"`
-	Manufacturer             string           `json:"manufacturer,omitempty"`
-	Service                  string           `json:"service,omitempty"`
-	Class                    string           `json:"class,omitempty"`
-	Enumerator               string           `json:"enumerator,omitempty"`
-	Location                 string           `json:"location,omitempty"`
-	LocationPaths            []string         `json:"location_paths,omitempty"`
-	HardwareID               string           `json:"hardware_id,omitempty"`
-	COMPort                  string           `json:"com_port,omitempty"`
-	PhysicalDeviceObjectName string           `json:"physical_device_object_name,omitempty"`
-	ParentInstanceID         string           `json:"parent_instance_id,omitempty"`
-	ParentChain              []string         `json:"parent_chain,omitempty"`
-	VID                      string           `json:"vid,omitempty"`
-	PID                      string           `json:"pid,omitempty"`
-	Revision                 string           `json:"revision,omitempty"`
-	Serial                   string           `json:"serial,omitempty"`
-	PowerState               DevicePowerState `json:"power_state"`
-	PowerStateEvidence       string           `json:"power_state_evidence,omitempty"`
-	PowerDataHex             string           `json:"power_data_hex,omitempty"`
-	Present                  bool             `json:"present"`
-	ConnectedAt              time.Time        `json:"connected_at,omitempty"`
-	LastChanged              time.Time        `json:"last_changed,omitempty"`
-	LastSeen                 time.Time        `json:"last_seen"`
+	InstanceID               string              `json:"instance_id"`
+	Description              string              `json:"description,omitempty"`
+	FriendlyName             string              `json:"friendly_name,omitempty"`
+	Manufacturer             string              `json:"manufacturer,omitempty"`
+	Service                  string              `json:"service,omitempty"`
+	Class                    string              `json:"class,omitempty"`
+	Enumerator               string              `json:"enumerator,omitempty"`
+	Location                 string              `json:"location,omitempty"`
+	LocationPaths            []string            `json:"location_paths,omitempty"`
+	HardwareID               string              `json:"hardware_id,omitempty"`
+	COMPort                  string              `json:"com_port,omitempty"`
+	PhysicalDeviceObjectName string              `json:"physical_device_object_name,omitempty"`
+	ParentInstanceID         string              `json:"parent_instance_id,omitempty"`
+	ParentChain              []string            `json:"parent_chain,omitempty"`
+	ParentStates             []ParentDeviceState `json:"parent_states,omitempty"`
+	ParentLowPowerChildD0    bool                `json:"parent_low_power_child_d0,omitempty"`
+	LogicalGroupID           string              `json:"logical_group_id,omitempty"`
+	LogicalGroupReason       string              `json:"logical_group_reason,omitempty"`
+	RelationRole             string              `json:"relation_role,omitempty"`
+	RelatedInstanceIDs       []string            `json:"related_instance_ids,omitempty"`
+	VID                      string              `json:"vid,omitempty"`
+	PID                      string              `json:"pid,omitempty"`
+	Revision                 string              `json:"revision,omitempty"`
+	Serial                   string              `json:"serial,omitempty"`
+	PowerState               DevicePowerState    `json:"power_state"`
+	PowerStateEvidence       string              `json:"power_state_evidence,omitempty"`
+	PowerDataHex             string              `json:"power_data_hex,omitempty"`
+	Present                  bool                `json:"present"`
+	ConnectedAt              time.Time           `json:"connected_at,omitempty"`
+	LastChanged              time.Time           `json:"last_changed,omitempty"`
+	LastSeen                 time.Time           `json:"last_seen"`
+}
+
+type ParentDeviceState struct {
+	InstanceID  string           `json:"instance_id"`
+	DisplayName string           `json:"display_name,omitempty"`
+	PowerState  DevicePowerState `json:"power_state"`
+	Evidence    string           `json:"evidence,omitempty"`
 }
 
 func (d DeviceSnapshot) DisplayName() string {
@@ -138,6 +152,10 @@ func (d DeviceSnapshot) IdentitySummary() string {
 }
 
 func (d DeviceSnapshot) LooksLikeFTDISerial() bool {
+	return d.COMPort != "" && d.HasFTDISignal()
+}
+
+func (d DeviceSnapshot) HasFTDISignal() bool {
 	joined := strings.ToUpper(strings.Join([]string{
 		d.VID,
 		d.Manufacturer,
@@ -147,7 +165,126 @@ func (d DeviceSnapshot) LooksLikeFTDISerial() bool {
 		d.HardwareID,
 		d.InstanceID,
 	}, " "))
-	return d.COMPort != "" && (strings.Contains(joined, "FTDI") || strings.Contains(joined, "VID_0403") || d.VID == "0403")
+	return strings.Contains(joined, "FTDI") ||
+		strings.Contains(joined, "VID_0403") ||
+		strings.Contains(joined, "USB SERIAL PORT") ||
+		strings.Contains(joined, "FTDIBUS") ||
+		d.VID == "0403"
+}
+
+func EnrichDeviceRelationships(devices []DeviceSnapshot) []DeviceSnapshot {
+	out := make([]DeviceSnapshot, len(devices))
+	copy(out, devices)
+
+	byInstance := make(map[string]DeviceSnapshot, len(out))
+	for _, device := range out {
+		if device.InstanceID != "" {
+			byInstance[strings.ToUpper(device.InstanceID)] = device
+		}
+	}
+
+	groups := make(map[string][]int)
+	for i := range out {
+		out[i].RelationRole = classifyRelationRole(out[i])
+		out[i].LogicalGroupID, out[i].LogicalGroupReason = logicalGroupKey(out[i])
+		if out[i].LogicalGroupID != "" {
+			groups[out[i].LogicalGroupID] = append(groups[out[i].LogicalGroupID], i)
+		}
+		out[i].ParentStates = parentStatesFor(out[i], byInstance)
+		out[i].ParentLowPowerChildD0 = parentLowPowerWhileChildD0(out[i])
+	}
+
+	for _, indexes := range groups {
+		if len(indexes) < 2 {
+			continue
+		}
+		for _, idx := range indexes {
+			related := make([]string, 0, len(indexes)-1)
+			for _, other := range indexes {
+				if other == idx {
+					continue
+				}
+				if out[other].InstanceID != "" {
+					related = append(related, out[other].InstanceID)
+				}
+			}
+			out[idx].RelatedInstanceIDs = related
+		}
+	}
+	return out
+}
+
+func classifyRelationRole(d DeviceSnapshot) string {
+	joined := strings.ToLower(strings.Join([]string{
+		d.FriendlyName,
+		d.Description,
+		d.Service,
+		d.Class,
+		d.HardwareID,
+		d.InstanceID,
+	}, " "))
+	switch {
+	case d.COMPort != "" || strings.Contains(joined, "usb serial port") || strings.EqualFold(d.Class, "Ports"):
+		return "port"
+	case strings.Contains(joined, "converter") || strings.Contains(joined, "ftdibus"):
+		return "converter"
+	default:
+		return "device"
+	}
+}
+
+func logicalGroupKey(d DeviceSnapshot) (string, string) {
+	if d.VID == "" || d.PID == "" {
+		return "", "missing VID/PID"
+	}
+	prefix := strings.ToUpper(d.VID) + ":" + strings.ToUpper(d.PID)
+	if d.Serial != "" {
+		return "vidpid-serial:" + prefix + ":" + strings.ToUpper(d.Serial), "VID/PID + serial"
+	}
+	if d.ParentInstanceID != "" {
+		return "vidpid-parent:" + prefix + ":" + strings.ToUpper(d.ParentInstanceID), "VID/PID + parent instance"
+	}
+	if len(d.LocationPaths) > 0 {
+		return "vidpid-location:" + prefix + ":" + strings.ToUpper(strings.Join(d.LocationPaths, "|")), "VID/PID + location paths"
+	}
+	return "", "VID/PID only is not enough"
+}
+
+func parentStatesFor(d DeviceSnapshot, byInstance map[string]DeviceSnapshot) []ParentDeviceState {
+	if len(d.ParentChain) == 0 {
+		return nil
+	}
+	out := make([]ParentDeviceState, 0, len(d.ParentChain))
+	for _, id := range d.ParentChain {
+		parent, ok := byInstance[strings.ToUpper(id)]
+		if !ok {
+			out = append(out, ParentDeviceState{
+				InstanceID: id,
+				PowerState: PowerUnknown,
+				Evidence:   "parent not found in current SetupAPI USB snapshot",
+			})
+			continue
+		}
+		out = append(out, ParentDeviceState{
+			InstanceID:  parent.InstanceID,
+			DisplayName: parent.DisplayName(),
+			PowerState:  parent.PowerState,
+			Evidence:    parent.PowerStateEvidence,
+		})
+	}
+	return out
+}
+
+func parentLowPowerWhileChildD0(d DeviceSnapshot) bool {
+	if d.PowerState != PowerD0 {
+		return false
+	}
+	for _, parent := range d.ParentStates {
+		if IsLowPowerState(parent.PowerState) {
+			return true
+		}
+	}
+	return false
 }
 
 func DeviceEvidenceRaw(d DeviceSnapshot) map[string]string {
@@ -168,10 +305,21 @@ func DeviceEvidenceRaw(d DeviceSnapshot) map[string]string {
 	add("com_port", d.COMPort)
 	if d.LooksLikeFTDISerial() {
 		add("ftdi_serial_target", "true")
+	} else if d.HasFTDISignal() && d.RelationRole == "converter" && len(d.RelatedInstanceIDs) > 0 {
+		add("ftdi_related_converter", "true")
+	}
+	add("logical_group_id", d.LogicalGroupID)
+	add("logical_group_reason", d.LogicalGroupReason)
+	add("relation_role", d.RelationRole)
+	if len(d.RelatedInstanceIDs) > 0 {
+		add("related_instance_ids", strings.Join(d.RelatedInstanceIDs, " | "))
 	}
 	add("power_state", string(d.PowerState))
 	add("power_state_evidence", d.PowerStateEvidence)
 	add("power_data_hex", d.PowerDataHex)
+	if d.ParentLowPowerChildD0 {
+		add("parent_low_power_child_d0", "true")
+	}
 	add("parent_instance_id", d.ParentInstanceID)
 	add("physical_device_object_name", d.PhysicalDeviceObjectName)
 	if len(d.LocationPaths) > 0 {
@@ -179,6 +327,13 @@ func DeviceEvidenceRaw(d DeviceSnapshot) map[string]string {
 	}
 	if len(d.ParentChain) > 0 {
 		add("parent_chain", strings.Join(d.ParentChain, " | "))
+	}
+	if len(d.ParentStates) > 0 {
+		parentStates := make([]string, 0, len(d.ParentStates))
+		for _, parent := range d.ParentStates {
+			parentStates = append(parentStates, parent.InstanceID+"="+string(parent.PowerState))
+		}
+		add("parent_states", strings.Join(parentStates, " | "))
 	}
 	return raw
 }
@@ -205,9 +360,10 @@ type ETWRecord struct {
 }
 
 var (
-	vidRe = regexp.MustCompile(`(?i)\bVID[_-]?([0-9A-F]{4})\b`)
-	pidRe = regexp.MustCompile(`(?i)\bPID[_-]?([0-9A-F]{4})\b`)
-	revRe = regexp.MustCompile(`(?i)\bREV[_-]?([0-9A-F]{4})\b`)
+	vidRe              = regexp.MustCompile(`(?i)\bVID[_-]?([0-9A-F]{4})\b`)
+	pidRe              = regexp.MustCompile(`(?i)\bPID[_-]?([0-9A-F]{4})\b`)
+	revRe              = regexp.MustCompile(`(?i)\bREV[_-]?([0-9A-F]{4})\b`)
+	vidPidPlusSerialRe = regexp.MustCompile(`(?i)\bVID[_-]?[0-9A-F]{4}\+PID[_-]?[0-9A-F]{4}\+([^\\]+)`)
 )
 
 func PopulateUSBIDs(d *DeviceSnapshot) {
@@ -222,14 +378,22 @@ func PopulateUSBIDs(d *DeviceSnapshot) {
 		d.Revision = firstMatch(revRe, raw)
 	}
 	if d.Serial == "" {
-		parts := strings.Split(d.InstanceID, `\`)
-		if len(parts) > 2 {
-			d.Serial = parts[len(parts)-1]
-		}
+		d.Serial = serialFromInstanceID(d.InstanceID)
 	}
 	d.VID = strings.ToUpper(d.VID)
 	d.PID = strings.ToUpper(d.PID)
 	d.Revision = strings.ToUpper(d.Revision)
+}
+
+func serialFromInstanceID(instanceID string) string {
+	if serial := firstMatch(vidPidPlusSerialRe, instanceID); serial != "" {
+		return serial
+	}
+	parts := strings.Split(instanceID, `\`)
+	if len(parts) > 2 {
+		return parts[len(parts)-1]
+	}
+	return ""
 }
 
 func firstMatch(re *regexp.Regexp, s string) string {

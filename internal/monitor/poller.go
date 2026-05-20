@@ -130,13 +130,17 @@ func (p *Poller) scan(emit bool) {
 	for id, d := range current {
 		old, ok := prev[id]
 		if !ok {
+			message := "USB device appeared in SetupAPI snapshot at " + d.ConnectedAt.Format(time.RFC3339)
+			if d.ParentLowPowerChildD0 {
+				message += "; parent hub/device is low power while child reports D0"
+			}
 			p.send(model.Event{
 				Time:       d.LastSeen,
 				Type:       model.EventPnPArrival,
 				Source:     model.SourceSetupAPIPoll,
 				Confidence: model.ConfidenceHigh,
 				Device:     d,
-				Message:    "USB device appeared in SetupAPI snapshot at " + d.ConnectedAt.Format(time.RFC3339),
+				Message:    message,
 				Raw:        model.DeviceEvidenceRaw(d),
 			})
 			continue

@@ -49,10 +49,16 @@ func NormalizePowerTransition(previous, current DeviceSnapshot) []Event {
 		out := base
 		out.Type = EventPowerD0Entry
 		out.Message = fmt.Sprintf("device power state changed from %s to %s", previous.PowerState, current.PowerState)
+		if current.ParentLowPowerChildD0 {
+			out.Message += "; parent hub/device is low power while child reports D0"
+		}
 		resume := out
 		resume.Type = EventResume
 		resume.Confidence = ConfidenceMedium
 		resume.Message = "device returned to D0 after a low-power state"
+		if current.ParentLowPowerChildD0 {
+			resume.Message += "; parent hub/device is low power while child reports D0"
+		}
 		return []Event{out, resume}
 	default:
 		out := base

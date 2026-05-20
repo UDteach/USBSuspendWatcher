@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.8.1
+
+- Added an `All USB` / `FTDI COM only` target filter. The default focuses the device list and event timeline on FTDI-style COM-port devices and their related converter nodes.
+- Added logical grouping for USB Serial Port and USB Serial Converter nodes using VID/PID plus serial, parent instance, or location paths. VID/PID alone is intentionally not treated as the same physical device.
+- Added parent/hub power-state comparison and a `parent_low_power_child_d0` diagnostic when a child reports D0 while a parent/hub node is in D1/D2/D3.
+- Captured `powercfg /lastwake` on system wake broadcasts and added wake correlation details for nearby USB/PnP/D0/D3 events.
+- Added a USB changes / transitions pane below the connected-device list for D0/D3, PnP, suspend/resume, and sleep/wake sequence tracking.
+- Added an indented relation/hub tree in the details pane so parent hubs and related converter/port nodes are easier to follow.
+- Expanded details and JSONL raw evidence with logical group, relation role, related instance IDs, parent states, and wake-source/correlation data.
+
 ## v0.8.0
 
 - Show ETW helper privilege separately from the GUI privilege so elevated helper startup is visible even when the GUI remains a standard-user process.

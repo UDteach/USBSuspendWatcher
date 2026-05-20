@@ -108,7 +108,7 @@ func ListPresentDevices() ([]model.DeviceSnapshot, error) {
 			devices = append(devices, d)
 		}
 	}
-	return devices, nil
+	return model.EnrichDeviceRelationships(devices), nil
 }
 
 func deviceInstanceID(h uintptr, data *spDevInfoData) (string, error) {

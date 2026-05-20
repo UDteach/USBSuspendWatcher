@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/lxn/walk"
 
@@ -202,6 +203,12 @@ func sameDeviceForHistory(a, b model.DeviceSnapshot) bool {
 	if strings.TrimSpace(a.InstanceID) != "" && strings.EqualFold(a.InstanceID, b.InstanceID) {
 		return true
 	}
+	if strings.TrimSpace(a.LogicalGroupID) != "" && strings.EqualFold(a.LogicalGroupID, b.LogicalGroupID) {
+		return true
+	}
+	if containsFold(a.RelatedInstanceIDs, b.InstanceID) || containsFold(b.RelatedInstanceIDs, a.InstanceID) {
+		return true
+	}
 	if strings.TrimSpace(a.COMPort) != "" && strings.EqualFold(a.COMPort, b.COMPort) {
 		return true
 	}
@@ -210,6 +217,18 @@ func sameDeviceForHistory(a, b model.DeviceSnapshot) bool {
 		strings.EqualFold(a.VID, b.VID) &&
 		strings.EqualFold(a.PID, b.PID) {
 		return true
+	}
+	return false
+}
+
+func containsFold(values []string, target string) bool {
+	if strings.TrimSpace(target) == "" {
+		return false
+	}
+	for _, value := range values {
+		if strings.EqualFold(value, target) {
+			return true
+		}
 	}
 	return false
 }
@@ -279,10 +298,14 @@ func (m *eventTableModel) DeviceHistory(device model.DeviceSnapshot, limit int) 
 	if m == nil {
 		return nil
 	}
+	matches := make([]bool, len(m.items))
+	for i, event := range m.items {
+		matches[i] = sameDeviceForHistory(device, event.Device)
+	}
 	out := make([]model.Event, 0, limit)
 	for i := len(m.items) - 1; i >= 0; i-- {
 		event := m.items[i]
-		if !sameDeviceForHistory(device, event.Device) {
+		if !matches[i] && !isSystemPowerNearDeviceEvent(m.items, matches, i, 30*time.Second) {
 			continue
 		}
 		out = append(out, event)
@@ -294,6 +317,77 @@ func (m *eventTableModel) DeviceHistory(device model.DeviceSnapshot, limit int) 
 		out[i], out[j] = out[j], out[i]
 	}
 	return out
+}
+
+func (m *eventTableModel) WakeCorrelation(t time.Time, window time.Duration) []model.Event {
+	if m == nil || t.IsZero() || window <= 0 {
+		return nil
+	}
+	var out []model.Event
+	for _, event := range m.items {
+		if !isWakeCorrelationEvent(event) {
+			continue
+		}
+		delta := event.Time.Sub(t)
+		if delta < 0 {
+			delta = -delta
+		}
+		if delta <= window {
+			out = append(out, event)
+		}
+	}
+	return out
+}
+
+func isSystemPowerNearDeviceEvent(events []model.Event, matches []bool, index int, window time.Duration) bool {
+	if index < 0 || index >= len(events) || !isSystemPowerEvent(events[index]) {
+		return false
+	}
+	for i, matched := range matches {
+		if !matched {
+			continue
+		}
+		delta := events[index].Time.Sub(events[i].Time)
+		if delta < 0 {
+			delta = -delta
+		}
+		if delta <= window {
+			return true
+		}
+	}
+	return false
+}
+
+func isSystemPowerEvent(event model.Event) bool {
+	return event.Type == model.EventSystemSleep || event.Type == model.EventSystemWake
+}
+
+func isWakeCorrelationEvent(event model.Event) bool {
+	switch event.Type {
+	case model.EventPnPArrival, model.EventPnPRemoval,
+		model.EventPowerD0Exit, model.EventPowerD0Entry,
+		model.EventSuspectSuspend, model.EventResume:
+		return true
+	default:
+		return false
+	}
+}
+
+func isUSBChangeTimelineEvent(event model.Event) bool {
+	switch event.Type {
+	case model.EventPnPArrival,
+		model.EventPnPRemoval,
+		model.EventPowerD0Exit,
+		model.EventPowerD0Entry,
+		model.EventSuspectSuspend,
+		model.EventResume,
+		model.EventIdleNotification,
+		model.EventSystemSleep,
+		model.EventSystemWake:
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *eventTableModel) SetFilter(filter eventFilter) {
@@ -309,7 +403,7 @@ func (m *eventTableModel) SetLanguage(language displayLanguage) {
 
 func (m *eventTableModel) Stats() eventStats {
 	var stats eventStats
-	for _, event := range m.items {
+	for _, event := range m.visible {
 		switch event.Type {
 		case model.EventSuspectSuspend:
 			stats.SuspectedSuspend++
